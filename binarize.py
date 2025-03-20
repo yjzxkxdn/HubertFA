@@ -143,6 +143,8 @@ class ForcedAlignmentBinarizer:
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
             try:
                 # input_feature: [1,input_dim,T]
+                if not os.path.exists(item["wav_path"]):
+                    continue
                 waveform = load_wav(item.wav_path, self.device, self.sample_rate)
 
                 # load audio

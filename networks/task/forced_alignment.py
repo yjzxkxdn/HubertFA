@@ -82,6 +82,7 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
 
     return dp, backtrack_s, curr_ph_max_prob_log
 
+
 class LitForcedAlignmentTask(pl.LightningModule):
     def __init__(
             self,
@@ -664,7 +665,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
         not_full_label_idx = label_type < 2
-        ZERO = torch.tensor(0).to(self.device)
+        ZERO = torch.tensor(0.0, requires_grad=True).to(self.device)
 
         if full_label_idx.any():
             (
