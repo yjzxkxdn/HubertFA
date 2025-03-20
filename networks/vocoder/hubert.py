@@ -23,13 +23,12 @@ class Audio2HubertSoft(torch.nn.Module):
                 audio):  # B, T
         with torch.inference_mode():
             units = self.hubert.units(audio.unsqueeze(1))
-            return units
+            return units # [1, T, B]
 
 
 class Audio2HubertSoftTTA2X:
     def __init__(self, path, h_sample_rate=16000, h_hop_size=320, device='cpu'):
         self.device = device
-        self.h_hop_size = h_hop_size
         print(' [Encoder Model] Hubert Soft with TTA 2X')
         print(' [Loading] ' + path)
         self.hubert = HubertSoft()
@@ -42,31 +41,18 @@ class Audio2HubertSoftTTA2X:
     def __call__(self, audio):
         # audio: [B, T]
         with torch.no_grad():
-            # 提取原始特征并调整维度 [B, T_feats, C]
             feats = self.hubert.units(audio.unsqueeze(1))
-
-            # 在时间轴左侧填充半个hop_size的样本
-            pad_amount = self.h_hop_size // 2
-            padded_audio = F.pad(audio, (pad_amount, 0))  # [B, T + pad_amount]
-
-            # 提取填充后的特征并调整维度
+            padded_audio = F.pad(audio, (160, 0))  # [B, T + pad_amount]
             feats2 = self.hubert.units(padded_audio.unsqueeze(1))
-
-            # 对齐特征长度
             n = feats2.shape[1] - feats.shape[1]
             if n > 0:
-                feats = F.pad(feats, (0, 0, 0, n))  # 时间维度后填充
-
-            # 拼接特征并重塑维度
-            feats_tta = torch.cat([feats2, feats], dim=2)
-            feats_tta = feats_tta.reshape(feats_tta.size(0), -1, feats_tta.size(-1))
-
-            # 调整输出时序
-            feats_tta = feats_tta[:, 1:, :]  # 移除第一个时间步
+                feats = F.pad(feats, (0, 0, 0, 1))
+            feats_tta = torch.cat((feats2, feats), dim=2).reshape(feats.shape[0], -1, feats.shape[-1])
+            feats_tta = feats_tta[:, 1:, :]
             if n > 0:
-                feats_tta = feats_tta[:, :-1, :]  # 移除多余时间步
-
-            return feats_tta
+                feats_tta = feats_tta[:, :-1, :]
+        units = feats_tta  # .transpose(2, 1)
+        return units # [1, T, B]
 
 
 class Audio2ContentVec768L12TTA2X:
@@ -102,7 +88,7 @@ class Audio2ContentVec768L12TTA2X:
             if n > 0:
                 feats_tta = feats_tta[:, :-1, :]
         units = feats_tta  # .transpose(2, 1)
-        return units
+        return units # [1, T, B]
 
 
 class UnitsEncoder:

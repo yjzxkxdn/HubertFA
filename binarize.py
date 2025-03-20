@@ -303,7 +303,7 @@ class ForcedAlignmentBinarizer:
         )
         print(
             f"Successfully binarized {prefix} set, "
-            f"total time {total_time:.2f}s, saved to {h5py_file_path}"
+            f"total time {total_time:.2f}s ({(total_time / 3600):.2f}h), saved to {h5py_file_path}"
         )
 
     def get_meta_data(self, data_folder, vocab):
