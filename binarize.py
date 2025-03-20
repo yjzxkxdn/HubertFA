@@ -32,6 +32,7 @@ class ForcedAlignmentBinarizer:
             hubert_config: dict = None,
     ):
         self.data_folder = pathlib.Path(data_folder)
+        self.binary_folder = pathlib.Path(binary_folder)
         self.valid_set_size = valid_set_size
         self.valid_set_preferred_folders = valid_set_preferred_folders
 
@@ -85,7 +86,7 @@ class ForcedAlignmentBinarizer:
 
     def process(self):
         vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
-        with open(self.data_folder / "binary" / "vocab.yaml", "w") as file:
+        with open(self.binary_folder / "vocab.yaml", "w") as file:
             yaml.dump(vocab, file)
 
         # load metadata of each item
@@ -109,7 +110,7 @@ class ForcedAlignmentBinarizer:
             "valid",
             meta_data_valid,
             vocab,
-            self.data_folder / "binary"
+            self.binary_folder
         )
 
         # binarize train set
@@ -117,7 +118,7 @@ class ForcedAlignmentBinarizer:
             "train",
             meta_data_train,
             vocab,
-            self.data_folder / "binary"
+            self.binary_folder
         )
 
     def binarize(
