@@ -1,0 +1,87 @@
+import numpy as np
+import pandas as pd
+import textgrid
+
+
+class Exporter:
+    def __init__(self, predictions, log):
+        self.predictions = predictions
+        self.log = log
+
+    def save_textgrids(self):
+        print("Saving TextGrids...")
+
+        for (
+                wav_path,
+                wav_length,
+                confidence,
+                ph_seq,
+                ph_intervals,
+                word_seq,
+                word_intervals,
+        ) in self.predictions:
+            tg = textgrid.TextGrid()
+            word_tier = textgrid.IntervalTier(name="words")
+            ph_tier = textgrid.IntervalTier(name="phones")
+
+            for word, (start, end) in zip(word_seq, word_intervals):
+                word_tier.add(start, end, word)
+
+            for ph, (start, end) in zip(ph_seq, ph_intervals):
+                ph_tier.add(minTime=float(start), maxTime=end, mark=ph)
+
+            tg.append(word_tier)
+            tg.append(ph_tier)
+
+            label_path = (
+                    wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name
+            )
+            label_path.parent.mkdir(parents=True, exist_ok=True)
+            tg.write(label_path)
+
+    def save_confidence_fn(self):
+        print("saving confidence...")
+
+        folder_to_data = {}
+
+        for (
+                wav_path,
+                wav_length,
+                confidence,
+                ph_seq,
+                ph_intervals,
+                word_seq,
+                word_intervals,
+        ) in self.predictions:
+            folder = wav_path.parent
+            if folder in folder_to_data:
+                curr_data = folder_to_data[folder]
+            else:
+                curr_data = {
+                    "name": [],
+                    "confidence": [],
+                }
+
+            name = wav_path.with_suffix("").name
+            curr_data["name"].append(name)
+            curr_data["confidence"].append(confidence)
+
+            folder_to_data[folder] = curr_data
+
+        for folder, data in folder_to_data.items():
+            df = pd.DataFrame(data)
+            path = folder / "confidence"
+            if not path.exists():
+                path.mkdir(parents=True, exist_ok=True)
+            df.to_csv(path / "confidence.csv", index=False)
+
+    def export(self, out_formats):
+        self.save_textgrids()
+
+        if "confidence" in out_formats:
+            self.save_confidence_fn()
+
+        if self.log:
+            print("error:")
+            for line in self.log:
+                print(line)
