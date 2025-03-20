@@ -18,6 +18,8 @@ valid_set_preferred_folders:
 ignored_phonemes:
   - AP
   - SP
+  - EP
+  - GS
   - <AP>
   - <SP>
   - ''
@@ -26,6 +28,7 @@ ignored_phonemes:
 max_length: 45 # unit: second
 
 hubert_config:
+  combine_mel: True
   encoder: 'hubertsoft'
   model_path: "dependencies/hubert/hubert-soft-35d9f29f.pt"
   sample_rate: 16000

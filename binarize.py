@@ -49,6 +49,7 @@ class ForcedAlignmentBinarizer:
 
         self.hop_size = melspec_config["hop_length"]
 
+        self.combine_mel = hubert_config["combine_mel"]
         self.unitsEncoder = UnitsEncoder(
             hubert_config["encoder"],
             hubert_config["model_path"],
@@ -157,8 +158,11 @@ class ForcedAlignmentBinarizer:
                 # units encode
                 units_t = self.unitsEncoder.encode(audio_t, self.sample_rate, self.hop_size)
 
-                input_feature = units_t.transpose(1, 2).squeeze(0)
-                melspec = self.get_melspec(waveform, 0)
+                input_feature = units_t.transpose(1, 2).squeeze(0) # [B, T]
+                melspec = self.get_melspec(waveform, 0) # [B, T]
+
+                if self.combine_mel:
+                    input_feature = torch.cat([input_feature, melspec], dim=0)
 
                 wav_length = len(waveform) / self.sample_rate
                 T = input_feature.shape[-1] * self.scale_factor

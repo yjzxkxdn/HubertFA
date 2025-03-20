@@ -99,9 +99,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.vocab = yaml.safe_load(vocab_text)
 
         self.data_augmentation_enabled = False
+        self.combine_mel = hubert_config["combine_mel"]
 
         self.backbone = UNetBackbone(
-            hubert_config['hidden_dims'],
+            hubert_config['hidden_dims'] if not self.combine_mel else hubert_config['hidden_dims'] + melspec_config[
+                'n_mels'],
             model_config["hidden_dims"],
             model_config["hidden_dims"],
             ResidualBasicBlock,
@@ -278,8 +280,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def _infer_once(
             self,
-            units,
-            melspec,
+            input_feature,  # [1, B, T]
+            melspec,  # [1, B, T]
             wav_length,
             ph_seq,
             word_seq=None,
@@ -302,7 +304,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_frame_logits,  # (B, T, vocab_size)
                 ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
-            ) = self.forward(units.transpose(1, 2))
+            ) = self.forward(input_feature.transpose(1, 2))
         if wav_length is not None:
             num_frames = int(
                 (
@@ -476,6 +478,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 units, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
             )
 
+            if self.combine_mel:
+                input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]
+            else:
+                input_feature = units
+
             (
                 ph_seq,
                 ph_intervals,
@@ -485,7 +492,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 _,
                 _,
             ) = self._infer_once(
-                units, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
+                input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
             )
 
             return (
