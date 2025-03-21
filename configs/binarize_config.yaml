@@ -25,10 +25,19 @@ ignored_phonemes:
   - ''
   - pau
   - cl
+
+# Mandatory marking as vowel
+vowel_phonemes:
+  - y
+  - w
+
+# Two-part dictionary used to determine vowels
+dictionary_paths:
+  - dictionary/opencpop-extension.txt
 max_length: 45 # unit: second
 
 hubert_config:
-  combine_mel: True
+  combine_mel: False
   encoder: 'hubertsoft'
   model_path: "dependencies/hubert/hubert-soft-35d9f29f.pt"
   sample_rate: 16000

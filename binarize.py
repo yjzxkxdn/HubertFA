@@ -11,8 +11,6 @@ import torch
 import yaml
 from tqdm import tqdm
 
-import torch.nn.functional as F
-
 from networks.utils.get_melspec import MelSpecExtractor
 from networks.utils.load_wav import load_wav
 
@@ -29,6 +27,8 @@ class ForcedAlignmentBinarizer:
             ignored_phonemes,
             melspec_config,
             max_length,
+            dictionary_paths,
+            vowel_phonemes,
             hubert_config: dict = None,
     ):
         self.data_folder = pathlib.Path(data_folder)
@@ -38,6 +38,10 @@ class ForcedAlignmentBinarizer:
 
         self.ignored_phonemes = ignored_phonemes
         self.melspec_config = melspec_config
+
+        self.dictionary_paths = dictionary_paths
+        self.vowel_phonemes = vowel_phonemes
+
         self.scale_factor = melspec_config["scale_factor"]
         self.max_length = max_length
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -85,10 +89,47 @@ class ForcedAlignmentBinarizer:
 
         return vocab
 
+    @staticmethod
+    def get_vowel(dictionary_paths, ignored_phonemes, vowel_phonemes, vocab):
+        print("Generating vowel phonemes...")
+        vowels = []
+
+        for path in dictionary_paths:
+            with open(path, "r", encoding="utf-8") as dict_file:
+                for line in dict_file:
+                    _, phonemes = line.strip().split('\t')
+                    phonemes = phonemes.split(' ')
+                    if len(phonemes) == 1:
+                        vowels.append(phonemes[0])
+                    elif len(phonemes) == 2:
+                        vowels.append(phonemes[1])
+
+        for v in vowel_phonemes:
+            vowels.append(v)
+
+        vowels = set(vowels)
+        for p in ignored_phonemes:
+            if p in vowels:
+                vowels.remove(p)
+        vowels = sorted(vowels)
+
+        vowel_dict = {}
+        for v in vowels:
+            if v in vocab.keys():
+                vowel_dict[v] = vocab[v]
+
+        print(f"vowels_size is {len(vowels)}")
+
+        return vowel_dict
+
     def process(self):
         vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
         with open(self.binary_folder / "vocab.yaml", "w") as file:
             yaml.dump(vocab, file)
+
+        vowels = self.get_vowel(self.dictionary_paths, self.ignored_phonemes, self.vowel_phonemes, vocab)
+        with open(self.binary_folder / "vowel.yaml", "w") as file:
+            yaml.dump(vowels, file)
 
         # load metadata of each item
         meta_data_df = self.get_meta_data(self.data_folder, vocab)
@@ -158,8 +199,8 @@ class ForcedAlignmentBinarizer:
                 # units encode
                 units_t = self.unitsEncoder.encode(audio_t, self.sample_rate, self.hop_size)
 
-                input_feature = units_t.transpose(1, 2).squeeze(0) # [B, T]
-                melspec = self.get_melspec(waveform, 0) # [B, T]
+                input_feature = units_t.transpose(1, 2).squeeze(0)  # [B, T]
+                melspec = self.get_melspec(waveform, 0)  # [B, T]
 
                 if self.combine_mel:
                     input_feature = torch.cat([input_feature, melspec], dim=0)

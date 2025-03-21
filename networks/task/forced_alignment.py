@@ -16,6 +16,7 @@ from networks.layer.block.resnet_block import ResidualBasicBlock
 from networks.layer.scaling.stride_conv import DownSampling, UpSampling
 from networks.loss.BinaryEMDLoss import BinaryEMDLoss
 from networks.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
+from networks.loss.VowelBoundaryLoss import ContinuousVowelBoundaryLoss
 from networks.utils.get_melspec import MelSpecExtractor
 from networks.utils.load_wav import load_wav
 from networks.utils.plot import plot_for_valid
@@ -87,6 +88,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
     def __init__(
             self,
             vocab_text,
+            vowel_text,
             model_config,
             hubert_config,
             melspec_config,
@@ -97,6 +99,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.save_hyperparameters()
 
         self.vocab = yaml.safe_load(vocab_text)
+        self.vowel = yaml.safe_load(vowel_text)
 
         self.data_augmentation_enabled = False
         self.combine_mel = hubert_config["combine_mel"]
@@ -130,6 +133,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             "ctc_GHM_loss",
             "consistency_loss",
             "pseudo_label_loss",
+            # "vowel_boundary_loss",
             "total_loss",
         ]
         self.losses_weights = torch.tensor(loss_config["losses"]["weights"])
@@ -173,6 +177,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
         self.MSE_loss_fn = nn.MSELoss()
         self.CTC_GHM_loss_fn = CTCGHMLoss(alpha=1 - 1e-3)
+        # self.vowel_boundary_loss_fn = ContinuousVowelBoundaryLoss(self.vowel)
 
         # get_melspec
         self.get_melspec = None
@@ -304,6 +309,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_frame_logits,  # (B, T, vocab_size)
                 ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
+                h
             ) = self.forward(input_feature.transpose(1, 2))
         if wav_length is not None:
             num_frames = int(
@@ -668,6 +674,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             input_feature_lengths,  # (B)
             label_type,  # (B)
             valid=False,
+            h=None  # 新增参数：主干网络特征 [B,T,D]
     ):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
@@ -709,6 +716,24 @@ class LitForcedAlignmentTask(pl.LightningModule):
         consistency_loss = ZERO
         pseudo_label_loss = ZERO
 
+        # # 新增元音边界损失计算
+        # vowel_boundary_loss = ZERO
+        # if full_label_idx.any() and h is not None:  # 仅在完整标注数据上计算
+        #     # 获取边界概率和音素标签
+        #     boundary_probs = torch.sigmoid(ph_edge_logits[full_label_idx])
+        #     ph_labels = ph_frame_gt[full_label_idx].long()
+        #
+        #     # 提取对应特征
+        #     selected_features = h[full_label_idx]  # [B_full, T, D]
+        #
+        #     # 计算损失（需要确保batch内有数据）
+        #     if selected_features.shape[0] > 0:
+        #         vowel_boundary_loss = self.vowel_boundary_loss_fn(
+        #             selected_features,
+        #             boundary_probs,
+        #             ph_labels
+        #         )
+
         losses = [
             ph_frame_GHM_loss,
             ph_edge_GHM_loss,
@@ -717,6 +742,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ctc_GHM_loss,
             consistency_loss,
             pseudo_label_loss,
+            # vowel_boundary_loss
         ]
 
         return losses
@@ -727,7 +753,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ph_frame_logits = logits[:, :, 2:]
         ph_edge_logits = logits[:, :, 0]
         ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
-        return ph_frame_logits, ph_edge_logits, ctc_logits
+        return ph_frame_logits, ph_edge_logits, ctc_logits, h
 
     def training_step(self, batch, batch_idx):
         try:
@@ -747,6 +773,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_frame_logits,  # (B, T, vocab_size)
                 ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
+                h  # 新增参数：主干网络特征 [B,T,D]
             ) = self.forward(input_feature.transpose(1, 2))
 
             losses = self._get_loss(
@@ -761,6 +788,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 input_feature_lengths,
                 label_type,
                 valid=False,
+                h=h
             )
 
             schedule_weight = self._losses_schedulers_call()
@@ -829,6 +857,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_frame_logits,  # (B, T, vocab_size)
             ph_edge_logits,  # (B, T)
             ctc_logits,  # (B, T, vocab_size)
+            h,
         ) = self.forward(input_feature.transpose(1, 2))
 
         losses = self._get_loss(
@@ -843,6 +872,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             input_feature_lengths,
             label_type,
             valid=True,
+            h=h
         )
 
         weights = self._losses_schedulers_call() * self.losses_weights
