@@ -268,13 +268,13 @@ def main(config_path: str, pretrained_model_path, resume):
                                                  out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]),
                                                  evaluate_every_steps=config["evaluate_every_steps"])
 
-    model_checkpoint = ModelCheckpoint(
-        dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
-        monitor="VlabelerEditRatio/total",
-        mode="min",
-        save_top_k=3,
-        filename="best-{step}-{VlabelerEditRatio/total:.2f}",
-    )
+    # model_checkpoint = ModelCheckpoint(
+    #     dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
+    #     monitor="VlabelerEditRatio/total",
+    #     mode="min",
+    #     save_top_k=3,
+    #     filename="best-{step}-{VlabelerEditRatio/total:.2f}",
+    # )
 
     # trainer
     trainer = pl.Trainer(
@@ -288,7 +288,7 @@ def main(config_path: str, pretrained_model_path, resume):
         check_val_every_n_epoch=None,
         max_epochs=-1,
         max_steps=config["optimizer_config"]["total_steps"],
-        callbacks=[recent_checkpoints_callback, vlabeler_callback, model_checkpoint],
+        callbacks=[recent_checkpoints_callback, vlabeler_callback],
     )
 
     ckpt_path = None
