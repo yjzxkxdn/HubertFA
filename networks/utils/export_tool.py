@@ -7,7 +7,7 @@ class Exporter:
     def __init__(self, predictions, log, out_path=None):
         self.predictions = predictions
         self.log = log
-        self.out_path = pathlib.Path(out_path)
+        self.out_path = pathlib.Path(out_path) if out_path else None
 
     def save_textgrids(self):
         print("Saving TextGrids...")
