@@ -22,8 +22,8 @@ def remove_ignored_phonemes(ignored_phonemes_list: str, point_tier: PointTier):
         res_tier.addPoint(point_tier[0])
     for i in range(len(point_tier) - 1):
         if (
-            point_tier[i].mark in ignored_phonemes_list
-            and point_tier[i + 1].mark in ignored_phonemes_list
+                point_tier[i].mark in ignored_phonemes_list
+                and point_tier[i + 1].mark in ignored_phonemes_list
         ):
             continue
 
@@ -71,9 +71,10 @@ def main(pred: str, target: str, recursive: bool, strict: bool, ignore: str):
     ignored = ignore.split(",")
     metrics: Dict[str, Metric] = {
         "BoundaryEditRatio": BoundaryEditRatio(),
-        "VlabelerEditRatio10ms": VlabelerEditRatio(move_tolerance=0.01),
-        "VlabelerEditRatio20ms": VlabelerEditRatio(move_tolerance=0.02),
-        "VlabelerEditRatio50ms": VlabelerEditRatio(move_tolerance=0.05),
+        "VlabelerEditRatio10-20ms": VlabelerEditRatio(move_min=0.01, move_max=0.02),
+        "VlabelerEditRatio20-50ms": VlabelerEditRatio(move_min=0.02, move_max=0.05),
+        "VlabelerEditRatio50-100ms": VlabelerEditRatio(move_min=0.05, move_max=0.1),
+        "VlabelerEditRatio100-5000ms": VlabelerEditRatio(move_min=0.1, move_max=5.0),
         "IntersectionOverUnion": IntersectionOverUnion(),
     }
 

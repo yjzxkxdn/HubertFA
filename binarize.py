@@ -23,6 +23,7 @@ class ForcedAlignmentBinarizer:
             data_folder,
             binary_folder,
             valid_set_size,
+            valid_sets,
             valid_set_preferred_folders,
             ignored_phonemes,
             melspec_config,
@@ -33,7 +34,9 @@ class ForcedAlignmentBinarizer:
     ):
         self.data_folder = pathlib.Path(data_folder)
         self.binary_folder = pathlib.Path(binary_folder)
+
         self.valid_set_size = valid_set_size
+        self.valid_sets = valid_sets
         self.valid_set_preferred_folders = valid_set_preferred_folders
 
         self.ignored_phonemes = ignored_phonemes
@@ -136,12 +139,17 @@ class ForcedAlignmentBinarizer:
 
         # split train and valid set
         valid_set_size = int(self.valid_set_size)
-        meta_data_valid = (
-            meta_data_df[meta_data_df["label_type"] != "no_label"]
-            .sample(frac=1)
-            .sort_values(by="preferred", ascending=False)
-            .iloc[:valid_set_size, :]
-        )
+        if len(self.valid_sets) == 0:
+            meta_data_valid = (
+                meta_data_df[meta_data_df["label_type"] != "no_label"]
+                .sample(frac=1)
+                .sort_values(by="preferred", ascending=False)
+                .iloc[:valid_set_size, :]
+            )
+        else:
+            meta_data_valid = (
+                meta_data_df[(meta_data_df["label_type"] != "no_label") & (meta_data_df["name"].isin(self.valid_sets))]
+            )
         meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(
             drop=True
         )
@@ -352,12 +360,11 @@ class ForcedAlignmentBinarizer:
         )
 
     def get_meta_data(self, data_folder, vocab):
-        path = data_folder
-        trans_path_list = [
-            i
-            for i in path.rglob("transcriptions.csv")
-            if i.name == "transcriptions.csv"
-        ]
+        full_path = pathlib.Path(os.path.join(data_folder, "full_label"))
+        weak_path = pathlib.Path(os.path.join(data_folder, "weak_label"))
+
+        trans_path_list = ([i for i in full_path.rglob("transcriptions.csv") if i.name == "transcriptions.csv"] +
+                           [i for i in weak_path.rglob("transcriptions.csv") if i.name == "transcriptions.csv"])
         if len(trans_path_list) <= 0:
             warnings.warn(f"No transcriptions.csv found in {data_folder}.")
 
@@ -393,7 +400,7 @@ class ForcedAlignmentBinarizer:
                 meta_data_df = df
 
         no_label_df = pd.DataFrame(
-            {"wav_path": [i for i in (path / "no_label").rglob("*.wav")]}
+            {"wav_path": [i for i in (data_folder / "no_label").rglob("*.wav")]}
         )
         meta_data_df = pd.concat([meta_data_df, no_label_df])
         meta_data_df["label_type"].fillna("no_label", inplace=True)

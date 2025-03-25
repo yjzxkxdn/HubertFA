@@ -24,8 +24,9 @@ class VlabelerEditsCount(Metric):
     The edit distance between pred and target in vlabeler.
     """
 
-    def __init__(self, move_tolerance=0.02):
-        self.move_tolerance = move_tolerance
+    def __init__(self, move_min=0.02, move_max=0.05):
+        self.move_min = move_min
+        self.move_max = move_max
         self.counts = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
@@ -69,7 +70,7 @@ class VlabelerEditsCount(Metric):
             # 如果边界距离大于move_tolerance s，就要移动，否则不需要
             # 如果音素不一致就要修改，否则不需要
             move = dfs(i - 1, j - 1)
-            if abs(pred[i - 1].time - target[j - 1].time) > self.move_tolerance:
+            if self.move_max >= abs(pred[i - 1].time - target[j - 1].time) > self.move_min:
                 move += 1
             if pred[i - 1].mark != target[j - 1].mark:
                 move += 1
@@ -91,8 +92,8 @@ class VlabelerEditRatio(Metric):
     Edit distance divided by total length of target.
     """
 
-    def __init__(self, move_tolerance=0.02):
-        self.edit_distance = VlabelerEditsCount(move_tolerance)
+    def __init__(self, move_min=0.02, move_max=0.05):
+        self.edit_distance = VlabelerEditsCount(move_min, move_max)
         self.total = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):

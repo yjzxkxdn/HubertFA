@@ -252,10 +252,6 @@ def collate_fn(batch):
     max_len = max(input_feature_lengths)
     ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
     max_ph_seq_len = max(ph_seq_lengths)
-    if batch[0][0].shape[0] > 1:
-        augmentation_enabled = True
-    else:
-        augmentation_enabled = False
 
     # padding
     for i, item in enumerate(batch):

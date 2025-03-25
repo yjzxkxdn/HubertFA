@@ -7,12 +7,23 @@ melspec_config:
   fmin: 40
   fmax: 32000
   clamp: 0.00001
-  scale_factor: 4
+  scale_factor: 1
 
+# 只检测data文件夹下，"full_label"、"weak_label"、"no_label"文件夹内数据
 data_folder: data/
 binary_folder: data/binary_base
 
 valid_set_size: 15
+valid_sets:
+  - 000_buweixia_1
+  - 000_buweixia_2
+  - 000_buweixia_3
+  - 013_mingtianhuigenghao_1
+  - 013_mingtianhuigenghao_2
+  - 013_mingtianhuigenghao_3
+  - 036_zuiqiannian_1
+  - 036_zuiqiannian_2
+  - 036_zuiqiannian_3
 valid_set_preferred_folders:
   - test
 ignored_phonemes:

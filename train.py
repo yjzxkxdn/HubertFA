@@ -1,16 +1,32 @@
 import os
 import pathlib
 
-import click
+import librosa
 import lightning as pl
 import torch
 import yaml
 from torch.utils.data import DataLoader
+from einops import repeat
 
+from networks.utils.get_melspec import MelSpecExtractor
+from networks.utils.load_wav import load_wav
+
+import networks.g2p
 from networks.utils.dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
 from networks.task.forced_alignment import LitForcedAlignmentTask
 
-from lightning.pytorch.callbacks import Callback
+from lightning.pytorch.callbacks import Callback, ModelCheckpoint
+
+from networks.utils.export_tool import Exporter
+from networks.utils.post_processing import post_processing
+
+from typing import Dict
+
+import click
+
+from networks.utils import label
+from networks.utils.metrics import Metric, VlabelerEditRatio
+from evaluate import remove_ignored_phonemes
 
 
 class RecentCheckpointsCallback(Callback):
@@ -34,6 +50,114 @@ class RecentCheckpointsCallback(Callback):
                 oldest_checkpoint = self.saved_checkpoints.pop(0)
                 if os.path.exists(oldest_checkpoint):
                     os.remove(oldest_checkpoint)
+
+
+class VlabelerEvaluateCallback(Callback):
+    def __init__(self, evaluate_folder, dictionary, out_tg_dir, evaluate_every_steps=2000):
+        super().__init__()
+        self.evaluate_folder = pathlib.Path(evaluate_folder)
+        self.out_tg_dir = pathlib.Path(out_tg_dir)
+        self.evaluate_every_steps = evaluate_every_steps
+        self.grapheme_to_phoneme = networks.g2p.DictionaryG2P(**{"dictionary": dictionary})
+        self.grapheme_to_phoneme.set_in_format('lab')
+        self.dataset = self.grapheme_to_phoneme.get_dataset(pathlib.Path(evaluate_folder).rglob("*.wav"))
+        self.get_melspec = None
+
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if trainer.sanity_checking:
+            return
+
+        if self.get_melspec is None:
+            self.get_melspec = MelSpecExtractor(**trainer.model.melspec_config)
+
+        if trainer.global_step % self.evaluate_every_steps == 0:
+            predictions = []
+            for batch in self.dataset:
+                wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
+                waveform = load_wav(
+                    wav_path, trainer.model.device, trainer.model.melspec_config["sample_rate"]
+                )
+                wav_length = waveform.shape[0] / trainer.model.melspec_config["sample_rate"]
+                melspec = self.get_melspec(waveform).detach().unsqueeze(0)
+                melspec = (melspec - melspec.mean()) / melspec.std()
+                melspec = repeat(
+                    melspec, "B C T -> B C (T N)", N=trainer.model.melspec_config["scale_factor"]
+                )
+
+                # load audio
+                audio, _ = librosa.load(wav_path, sr=trainer.model.melspec_config["sample_rate"])
+                if len(audio.shape) > 1:
+                    audio = librosa.to_mono(audio)
+                audio_t = torch.from_numpy(audio).float().to(trainer.model.device)
+                audio_t = audio_t.unsqueeze(0)
+                units = trainer.model.unitsEncoder.encode(audio_t, trainer.model.melspec_config["sample_rate"],
+                                                          trainer.model.melspec_config["hop_length"])
+                units = units.transpose(1, 2)
+
+                units = (units - units.mean()) / units.std()
+                units = repeat(
+                    units, "B C T -> B C (T N)", N=trainer.model.melspec_config["scale_factor"]
+                )
+
+                if trainer.model.combine_mel:
+                    input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]
+                else:
+                    input_feature = units
+
+                (
+                    ph_seq,
+                    ph_intervals,
+                    word_seq,
+                    word_intervals,
+                    confidence,
+                    _,
+                    _,
+                ) = trainer.model._infer_once(
+                    input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
+                )
+
+                predictions.append((wav_path, wav_length, confidence, ph_seq, ph_intervals, word_seq, word_intervals,))
+
+            predictions, log = post_processing(predictions)
+            out_tg_dir = self.out_tg_dir / "evaluate" / str(trainer.global_step)
+            exporter = Exporter(predictions, log, out_tg_dir)
+            exporter.export(['textgrid'])
+
+            iterable = out_tg_dir.rglob("*.TextGrid")
+
+            metrics: Dict[str, Metric] = {
+                "10-20ms": VlabelerEditRatio(move_min=0.01, move_max=0.02),
+                "20-50ms": VlabelerEditRatio(move_min=0.02, move_max=0.05),
+                "50-100ms": VlabelerEditRatio(move_min=0.05, move_max=0.1),
+                "100-5000ms": VlabelerEditRatio(move_min=0.1, move_max=5.0)
+            }
+
+            for pred_file in iterable:
+                target_file = list(self.evaluate_folder.rglob(pathlib.Path(pred_file).name))
+                if not target_file:
+                    continue
+                target_file = target_file[0]
+
+                pred_tier = label.textgrid_from_file(pred_file)[-1]
+                target_tier = label.textgrid_from_file(target_file)[-1]
+                pred_tier = remove_ignored_phonemes("", pred_tier)
+                target_tier = remove_ignored_phonemes("", target_tier)
+
+                for metric in metrics.values():
+                    metric.update(pred_tier, target_tier)
+
+            result = {key: metric.compute() for key, metric in metrics.items()}
+
+            total = result["10-20ms"] * 0.1 + result["20-50ms"] * 0.2 + result["50-100ms"] * 0.3 + result[
+                "100-5000ms"] * 0.4
+            result["total"] = total
+
+            if trainer.logger:
+                for metric_name, metric_value in result.items():
+                    trainer.logger.log_metrics(
+                        {f"VlabelerEditRatio/{metric_name}": metric_value},
+                        step=trainer.global_step
+                    )
 
 
 @click.command()
@@ -137,6 +261,21 @@ def main(config_path: str, pretrained_model_path, resume):
         filename="checkpoint-{step}",
     )
 
+    evaluate_folder = pathlib.Path(config["evaluate_folder"])
+
+    vlabeler_callback = VlabelerEvaluateCallback(evaluate_folder=evaluate_folder,
+                                                 dictionary=config["evaluate_dictionary"],
+                                                 out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]),
+                                                 evaluate_every_steps=config["evaluate_every_steps"])
+
+    model_checkpoint = ModelCheckpoint(
+        dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
+        monitor="VlabelerEditRatio/total",
+        mode="min",
+        save_top_k=3,
+        filename="best-{step}-{VlabelerEditRatio/total:.2f}",
+    )
+
     # trainer
     trainer = pl.Trainer(
         accelerator=config["accelerator"],
@@ -149,7 +288,7 @@ def main(config_path: str, pretrained_model_path, resume):
         check_val_every_n_epoch=None,
         max_epochs=-1,
         max_steps=config["optimizer_config"]["total_steps"],
-        callbacks=[recent_checkpoints_callback],
+        callbacks=[recent_checkpoints_callback, vlabeler_callback, model_checkpoint],
     )
 
     ckpt_path = None

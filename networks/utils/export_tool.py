@@ -1,12 +1,13 @@
-import numpy as np
+import pathlib
 import pandas as pd
 import textgrid
 
 
 class Exporter:
-    def __init__(self, predictions, log):
+    def __init__(self, predictions, log, out_path=None):
         self.predictions = predictions
         self.log = log
+        self.out_path = pathlib.Path(out_path)
 
     def save_textgrids(self):
         print("Saving TextGrids...")
@@ -33,11 +34,13 @@ class Exporter:
             tg.append(word_tier)
             tg.append(ph_tier)
 
-            label_path = (
-                    wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name
-            )
-            label_path.parent.mkdir(parents=True, exist_ok=True)
-            tg.write(label_path)
+            if self.out_path is not None:
+                tg_path = self.out_path / "TextGrid" / wav_path.with_suffix(".TextGrid").name
+            else:
+                tg_path = wav_path.parent / "TextGrid" / wav_path.with_suffix(".TextGrid").name
+
+            tg_path.parent.mkdir(parents=True, exist_ok=True)
+            tg.write(tg_path)
 
     def save_confidence_fn(self):
         print("saving confidence...")
