@@ -9,7 +9,7 @@ binary_folder: data/binary_base
 # 临时格式为：evaluate_folder/spk/wavs/xxx.wav && xxx.lab、evaluate_folder/spk/TextGrid/xxx.TextGrid
 # TextGrid建议使用人工修正后的文件作为标定，仅包含"SP"和模型训练集中出现过的音素
 evaluate_folder: data/evaluate
-evaluate_every_steps: 2000
+evaluate_every_steps: 1000
 evaluate_dictionary: dictionary/opencpop-extension.txt
 
 dataloader_workers: 0
@@ -21,9 +21,9 @@ drop_last: False
 
 # model
 model:
-  hidden_dims: 128
-  down_sampling_factor: 3
-  down_sampling_times: 5
+  hidden_dims: 192
+  down_sampling_factor: 2
+  down_sampling_times: 3
   channels_scaleup_factor: 1.3
 
 hubert_config:
@@ -63,5 +63,5 @@ gradient_clip_val: 0.5
 gradient_clip_algorithm: norm #value
 val_check_interval: 500 # 0.25
 
-save_top_k: 5
+save_top_k: 20
 save_every_steps: 500
