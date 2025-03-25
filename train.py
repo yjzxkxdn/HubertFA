@@ -5,6 +5,8 @@ import librosa
 import lightning as pl
 import torch
 import yaml
+import tqdm
+
 from torch.utils.data import DataLoader
 from einops import repeat
 
@@ -72,7 +74,7 @@ class VlabelerEvaluateCallback(Callback):
 
         if trainer.global_step % self.evaluate_every_steps == 0:
             predictions = []
-            for batch in self.dataset:
+            for batch in tqdm.tqdm(self.dataset, desc="evaluate_forward:"):
                 wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
                 waveform = load_wav(
                     wav_path, trainer.model.device, trainer.model.melspec_config["sample_rate"]
@@ -132,7 +134,7 @@ class VlabelerEvaluateCallback(Callback):
                 "100-5000ms": VlabelerEditRatio(move_min=0.1, move_max=5.0)
             }
 
-            for pred_file in iterable:
+            for pred_file in tqdm.tqdm(iterable, desc="evaluate_compute:"):
                 target_file = list(self.evaluate_folder.rglob(pathlib.Path(pred_file).name))
                 if not target_file:
                     continue
