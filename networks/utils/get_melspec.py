@@ -86,6 +86,7 @@ class MelSpecExtractor:
             fmax,
             clamp,
             device=None,
+            scale_factor=None,
     ):
         global melspec_transform
         if device is None:

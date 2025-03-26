@@ -10,7 +10,6 @@ from einops import rearrange
 class MixedDataset(torch.utils.data.Dataset):
     def __init__(
             self,
-            augmentation_size,
             binary_data_folder="data/binary",
             prefix="train",
     ):

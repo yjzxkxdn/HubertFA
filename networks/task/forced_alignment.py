@@ -1,6 +1,5 @@
 from typing import Any
 
-import librosa
 import lightning as pl
 import numpy as np
 import numba
@@ -457,12 +456,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             melspec = (melspec - melspec.mean()) / melspec.std()
 
             # load audio
-            audio, _ = librosa.load(wav_path, sr=self.melspec_config["sample_rate"])
-            if len(audio.shape) > 1:
-                audio = librosa.to_mono(audio)
-            audio_t = torch.from_numpy(audio).float().to(self.device)
-            audio_t = audio_t.unsqueeze(0)
-            units = self.unitsEncoder.encode(audio_t, self.melspec_config["sample_rate"],
+            units = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
                                              self.melspec_config["hop_length"])
             units = units.transpose(1, 2)
 

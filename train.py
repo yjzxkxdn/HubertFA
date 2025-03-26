@@ -1,14 +1,12 @@
 import os
 import pathlib
 
-import librosa
 import lightning as pl
 import torch
 import yaml
 import tqdm
 
 from torch.utils.data import DataLoader
-from einops import repeat
 
 from networks.utils.get_melspec import MelSpecExtractor
 from networks.utils.load_wav import load_wav
@@ -84,12 +82,8 @@ class VlabelerEvaluateCallback(Callback):
                 melspec = (melspec - melspec.mean()) / melspec.std()
 
                 # load audio
-                audio, _ = librosa.load(wav_path, sr=trainer.model.melspec_config["sample_rate"])
-                if len(audio.shape) > 1:
-                    audio = librosa.to_mono(audio)
-                audio_t = torch.from_numpy(audio).float().to(trainer.model.device)
-                audio_t = audio_t.unsqueeze(0)
-                units = trainer.model.unitsEncoder.encode(audio_t, trainer.model.melspec_config["sample_rate"],
+                units = trainer.model.unitsEncoder.encode(waveform.unsqueeze(0),
+                                                          trainer.model.melspec_config["sample_rate"],
                                                           trainer.model.melspec_config["hop_length"])
                 units = units.transpose(1, 2)
 
@@ -201,21 +195,17 @@ def main(config_path: str, pretrained_model_path, resume):
         config_global = yaml.safe_load(f)
     config.update(config_global)
 
-    config["data_augmentation_size"] = 0
-
     torch.set_float32_matmul_precision(config["float32_matmul_precision"])
     pl.seed_everything(config["random_seed"], workers=True)
 
     # define dataset
     num_workers = config['dataloader_workers']
-    train_dataset = MixedDataset(
-        config["data_augmentation_size"], config["binary_folder"], prefix="train"
-    )
+    train_dataset = MixedDataset(config["binary_folder"], prefix="train")
     train_sampler = WeightedBinningAudioBatchSampler(
         train_dataset.get_label_types(),
         train_dataset.get_wav_lengths(),
         config["oversampling_weights"],
-        config["batch_max_length"] / (2 if config["data_augmentation_size"] > 0 else 1),
+        config["batch_max_length"],
         config["binning_length"],
         config["drop_last"],
     )
@@ -229,7 +219,7 @@ def main(config_path: str, pretrained_model_path, resume):
         prefetch_factor=(2 if num_workers > 0 else None),
     )
 
-    valid_dataset = MixedDataset(0, config["binary_folder"], prefix="valid")
+    valid_dataset = MixedDataset(config["binary_folder"], prefix="valid")
     valid_dataloader = DataLoader(
         dataset=valid_dataset,
         batch_size=1,
