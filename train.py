@@ -104,26 +104,18 @@ def main(config_path: str, pretrained_model_path, resume):
     )
 
     recent_checkpoints_callback = RecentCheckpointsCallback(
-        dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
+        save_path=str(pathlib.Path("ckpt") / config["model_name"]),
         save_top_k=config["save_top_k"],
         save_every_steps=config["save_every_steps"],
-        filename="checkpoint-{step}",
     )
 
     evaluate_folder = pathlib.Path(config["evaluate_folder"])
 
     vlabeler_callback = VlabelerEvaluateCallback(evaluate_folder=evaluate_folder,
                                                  dictionary=config["evaluate_dictionary"],
+                                                 save_path=str(pathlib.Path("ckpt") / config["model_name"]),
                                                  out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]),
                                                  evaluate_every_steps=config["evaluate_every_steps"])
-
-    # model_checkpoint = ModelCheckpoint(
-    #     dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
-    #     monitor="VlabelerEditRatio/total",
-    #     mode="min",
-    #     save_top_k=3,
-    #     filename="best-{step}-{VlabelerEditRatio/total:.2f}",
-    # )
 
     stepProgressBar = StepProgressBar()
 

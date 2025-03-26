@@ -103,7 +103,7 @@ class VlabelerEditRatio(Metric):
 
     def compute(self):
         if self.total == 0:
-            return None
+            return 1.0
         return round(self.edit_distance.compute() / self.total, 6)
 
     def reset(self):

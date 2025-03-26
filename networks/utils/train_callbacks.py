@@ -34,17 +34,17 @@ class StepProgressBar(TQDMProgressBar):
 
 
 class RecentCheckpointsCallback(Callback):
-    def __init__(self, dirpath, save_top_k=5, save_every_steps=5000, filename="checkpoint-{step}"):
-        self.dirpath = dirpath
+    def __init__(self, save_path, save_top_k=5, save_every_steps=5000):
+        self.save_path = save_path
         self.save_top_k = save_top_k
-        self.filename = filename
+        self.filename = "checkpoint-step={step}"
         self.saved_checkpoints = []
         self.save_every_steps = save_every_steps
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if trainer.global_step % self.save_every_steps == 0:
             checkpoint_path = os.path.join(
-                self.dirpath,
+                self.save_path,
                 self.filename.format(step=trainer.global_step) + ".ckpt"
             )
             trainer.save_checkpoint(checkpoint_path)
@@ -57,15 +57,21 @@ class RecentCheckpointsCallback(Callback):
 
 
 class VlabelerEvaluateCallback(Callback):
-    def __init__(self, evaluate_folder, dictionary, out_tg_dir, evaluate_every_steps=2000):
+    def __init__(self, evaluate_folder, dictionary, save_path, out_tg_dir, save_top_k=3, evaluate_every_steps=2000):
         super().__init__()
+        self.save_top_k = save_top_k
         self.evaluate_folder = pathlib.Path(evaluate_folder)
+        self.save_path = pathlib.Path(save_path)
         self.out_tg_dir = pathlib.Path(out_tg_dir)
         self.evaluate_every_steps = evaluate_every_steps
         self.grapheme_to_phoneme = networks.g2p.DictionaryG2P(**{"dictionary": dictionary})
         self.grapheme_to_phoneme.set_in_format('lab')
         self.dataset = self.grapheme_to_phoneme.get_dataset(pathlib.Path(evaluate_folder).rglob("*.wav"))
         self.get_melspec = None
+
+        self.best_total = 1.0
+        self.filename = "checkpoint-step={step}-evaluate={metric}"
+        self.saved_checkpoints = []
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         if trainer.sanity_checking:
@@ -152,3 +158,17 @@ class VlabelerEvaluateCallback(Callback):
                         {f"VlabelerEditRatio/{metric_name}": metric_value},
                         step=trainer.global_step
                     )
+
+            if total < self.best_total:
+                self.best_total = total
+                checkpoint_path = os.path.join(
+                    self.save_path,
+                    self.filename.format(step=trainer.global_step, metric=round(self.best_total, 5)) + ".ckpt"
+                )
+                trainer.save_checkpoint(checkpoint_path)
+                self.saved_checkpoints.append(checkpoint_path)
+
+                if len(self.saved_checkpoints) > self.save_top_k:
+                    oldest_checkpoint = self.saved_checkpoints.pop(0)
+                    if os.path.exists(oldest_checkpoint):
+                        os.remove(oldest_checkpoint)

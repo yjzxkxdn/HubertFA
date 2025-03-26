@@ -48,20 +48,14 @@ class BaseG2P:
         dataset = []
         for wav_path in wav_paths:
             try:
-                if wav_path.with_suffix("." + self.in_format).exists():
-                    with open(
-                        wav_path.with_suffix("." + self.in_format),
-                        "r",
-                        encoding="utf-8",
-                    ) as f:
+                lab_path = wav_path.with_suffix("." + self.in_format)
+                if lab_path.exists():
+                    with open(lab_path, "r", encoding="utf-8", ) as f:
                         lab_text = f.read().strip()
                     ph_seq, word_seq, ph_idx_to_word_idx = self(lab_text)
                     dataset.append((wav_path, ph_seq, word_seq, ph_idx_to_word_idx))
             except Exception as e:
                 e.args = (f" Error when processing {wav_path}: {e} ",)
-                raise e
-        if len(dataset) <= 0:
-            raise ValueError("No valid data found.")
         print(f"Loaded {len(dataset)} samples.")
 
         dataset = pd.DataFrame(
