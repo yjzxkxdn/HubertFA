@@ -4,7 +4,6 @@ import warnings
 
 import click
 import h5py
-import librosa
 import numpy as np
 import pandas as pd
 import torch
@@ -13,7 +12,6 @@ from tqdm import tqdm
 
 from networks.utils.get_melspec import MelSpecExtractor
 from networks.utils.load_wav import load_wav
-
 from networks.vocoder.hubert import UnitsEncoder
 
 
@@ -196,15 +194,8 @@ class ForcedAlignmentBinarizer:
                     continue
                 waveform = load_wav(item.wav_path, self.device, self.sample_rate)
 
-                # load audio
-                audio, _ = librosa.load(item.wav_path, sr=self.sample_rate)
-                if len(audio.shape) > 1:
-                    audio = librosa.to_mono(audio)
-                audio_t = torch.from_numpy(audio).float().to(self.device)
-                audio_t = audio_t.unsqueeze(0)
-
                 # units encode
-                units_t = self.unitsEncoder.encode(audio_t, self.sample_rate, self.hop_size)
+                units_t = self.unitsEncoder.encode(waveform.unsqueeze(0), self.sample_rate, self.hop_size)
 
                 input_feature = units_t.transpose(1, 2).squeeze(0)  # [B, T]
                 melspec = self.get_melspec(waveform, 0)  # [B, T]
