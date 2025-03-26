@@ -124,11 +124,11 @@ class ForcedAlignmentBinarizer:
 
     def process(self):
         vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
-        with open(self.binary_folder / "vocab.yaml", "w") as file:
+        with open(self.binary_folder / "vocab.yaml", "w", encoding="utf-8") as file:
             yaml.dump(vocab, file)
 
         vowels = self.get_vowel(self.dictionary_paths, self.ignored_phonemes, self.vowel_phonemes, vocab)
-        with open(self.binary_folder / "vowel.yaml", "w") as file:
+        with open(self.binary_folder / "vowel.yaml", "w", encoding="utf-8") as file:
             yaml.dump(vowels, file)
 
         # load metadata of each item
@@ -192,7 +192,7 @@ class ForcedAlignmentBinarizer:
                 # input_feature: [1, input_dim, T]
                 if not os.path.exists(item["wav_path"]):
                     continue
-                waveform = load_wav(item.wav_path, self.device, self.sample_rate)   # (L,)
+                waveform = load_wav(item.wav_path, self.device, self.sample_rate)  # (L,)
 
                 # units encode
                 units_t = self.unitsEncoder.encode(waveform.unsqueeze(0), self.sample_rate, self.hop_size)  # [B, T, C]
@@ -201,9 +201,9 @@ class ForcedAlignmentBinarizer:
                 melspec = self.get_melspec(waveform, 0)  # [C, T]
 
                 if self.combine_mel:
-                    input_feature = torch.cat([input_feature, melspec], dim=0) # [Units_C + Mel_C, T]
+                    input_feature = torch.cat([input_feature, melspec], dim=0)  # [Units_C + Mel_C, T]
 
-                wav_length = len(waveform) / self.sample_rate   # seconds
+                wav_length = len(waveform) / self.sample_rate  # seconds
                 T = input_feature.shape[-1]
                 if wav_length > self.max_length:
                     print(
@@ -220,7 +220,7 @@ class ForcedAlignmentBinarizer:
                 melspec = melspec.unsqueeze(0)  # [B, C, T]
 
                 input_feature = (input_feature - input_feature.mean(dim=[1, 2], keepdim=True)) / input_feature.std(
-                    dim=[1, 2], keepdim=True)   # [B, C, T]
+                    dim=[1, 2], keepdim=True)  # [B, C, T]
 
                 h5py_item_data["input_feature"] = (
                     input_feature.cpu().numpy().astype("float32")
@@ -411,7 +411,7 @@ class ForcedAlignmentBinarizer:
     help="binarize config path",
 )
 def binarize(config_path: str):
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     global_config = {
@@ -419,7 +419,7 @@ def binarize(config_path: str):
         "melspec_config": config["melspec_config"]
     }
     os.makedirs(config["binary_folder"], exist_ok=True)
-    with open(pathlib.Path(config["binary_folder"]) / "global_config.yaml", "w") as file:
+    with open(pathlib.Path(config["binary_folder"]) / "global_config.yaml", "w", encoding="utf-8") as file:
         yaml.dump(global_config, file)
 
     ForcedAlignmentBinarizer(**config).process()

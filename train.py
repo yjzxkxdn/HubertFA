@@ -43,18 +43,18 @@ def main(config_path: str, pretrained_model_path, resume):
         "TORCH_CUDNN_V8_API_ENABLED"
     ] = "1"  # Prevent unacceptable slowdowns when using 16 precision
 
-    with open(config_path, "r") as f:
+    with open(config_path, "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
-    with open(pathlib.Path(config["binary_folder"]) / "vocab.yaml") as f:
+    with open(pathlib.Path(config["binary_folder"]) / "vocab.yaml", encoding="utf-8") as f:
         vocab = yaml.safe_load(f)
     vocab_text = yaml.safe_dump(vocab)
 
-    with open(pathlib.Path(config["binary_folder"]) / "vowel.yaml") as f:
+    with open(pathlib.Path(config["binary_folder"]) / "vowel.yaml", encoding="utf-8") as f:
         vowel = yaml.safe_load(f)
     vowel_text = yaml.safe_dump(vowel)
 
-    with open(pathlib.Path(config["binary_folder"]) / "global_config.yaml") as f:
+    with open(pathlib.Path(config["binary_folder"]) / "global_config.yaml", encoding="utf-8") as f:
         config_global = yaml.safe_load(f)
     config.update(config_global)
 
