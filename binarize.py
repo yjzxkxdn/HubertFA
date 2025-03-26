@@ -373,20 +373,13 @@ class ForcedAlignmentBinarizer:
             )
             df["preferred"] = df["wav_path"].apply(
                 lambda path_: (
-                    True
-                    if any(
-                        [
-                            i in pathlib.Path(path_).parts
-                            for i in self.valid_set_preferred_folders
-                        ]
-                    )
+                    True if any([i in pathlib.Path(path_).parts for i in self.valid_set_preferred_folders])
                     else False
                 ),
             )
             df["label_type"] = df["wav_path"].apply(
                 lambda path_: (
-                    "full_label"
-                    if "full_label" in path_
+                    "full_label" if "full_label" in path_
                     else "weak_label" if "weak_label" in path_ else "no_label"
                 ),
             )

@@ -65,34 +65,13 @@ class MixedDataset(torch.utils.data.Dataset):
             self._open_h5py_file()
 
         item = self.h5py_file["items"][str(index)]
-
-        # input_feature
         input_feature = np.array(item["input_feature"])  # [1,256,T]
-
-        # label_type
         label_type = np.array(item["label_type"])
-
-        # ph_seq
         ph_seq = np.array(item["ph_seq"])
-
-        # ph_edge
         ph_edge = np.array(item["ph_edge"])
-
-        # ph_frame
         ph_frame = np.array(item["ph_frame"])
-
-        # ph_mask
         ph_mask = np.array(item["ph_mask"])
-
-        input_feature = np.repeat(
-            input_feature, len(ph_frame) // input_feature.shape[-1], axis=-1
-        )  # [1, 256, 4 * T]
-
         melspec = np.array(item["melspec"])
-
-        melspec = np.repeat(
-            melspec, len(ph_frame) // melspec.shape[-1], axis=-1
-        )  # [1, 256, 4 * T]
 
         return input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type, melspec
 
