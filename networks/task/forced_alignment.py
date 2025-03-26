@@ -453,14 +453,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
             )
             wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
             melspec = self.get_melspec(waveform).detach().unsqueeze(0)
-            melspec = (melspec - melspec.mean()) / melspec.std()
 
             # load audio
             units = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
                                              self.melspec_config["hop_length"])
             units = units.transpose(1, 2)
-
-            units = (units - units.mean()) / units.std()
 
             if self.combine_mel:
                 input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]

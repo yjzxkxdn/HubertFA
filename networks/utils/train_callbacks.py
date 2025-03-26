@@ -74,9 +74,6 @@ class VlabelerEvaluateCallback(Callback):
         self.saved_checkpoints = []
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        if trainer.sanity_checking:
-            return
-
         if self.get_melspec is None:
             self.get_melspec = MelSpecExtractor(**trainer.model.melspec_config)
 
@@ -89,15 +86,12 @@ class VlabelerEvaluateCallback(Callback):
                 )
                 wav_length = waveform.shape[0] / trainer.model.melspec_config["sample_rate"]
                 melspec = self.get_melspec(waveform).detach().unsqueeze(0)
-                melspec = (melspec - melspec.mean()) / melspec.std()
 
                 # load audio
                 units = trainer.model.unitsEncoder.encode(waveform.unsqueeze(0),
                                                           trainer.model.melspec_config["sample_rate"],
                                                           trainer.model.melspec_config["hop_length"])
                 units = units.transpose(1, 2)
-
-                units = (units - units.mean()) / units.std()
 
                 if trainer.model.combine_mel:
                     input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]

@@ -219,9 +219,6 @@ class ForcedAlignmentBinarizer:
                 input_feature = input_feature.unsqueeze(0)  # [B, C, T]
                 melspec = melspec.unsqueeze(0)  # [B, C, T]
 
-                input_feature = (input_feature - input_feature.mean(dim=[1, 2], keepdim=True)) / input_feature.std(
-                    dim=[1, 2], keepdim=True)  # [B, C, T]
-
                 h5py_item_data["input_feature"] = (
                     input_feature.cpu().numpy().astype("float32")
                 )

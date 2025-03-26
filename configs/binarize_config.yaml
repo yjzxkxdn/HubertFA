@@ -1,20 +1,11 @@
-melspec_config:
-  n_mels: 128
-  sample_rate: 44100
-  win_length: 1024
-  hop_length: 512
-  n_fft: 2048
-  fmin: 40
-  fmax: 32000
-  clamp: 0.00001
-
 hubert_config:
   combine_mel: False
-  # hubertsoft:   xxx.pt      hid_dim: 256
-  # cnhubert:     xxx_folder  hid_dim: 768
-  # whisper-ppg:  xxx.pt      hid_dim: 1024
-  encoder: 'cnhubert'
-  model_path: "dependencies/cnhubert"
+  # hubertsoft:     xxx.pt      hid_dim: 256
+  # cnhubert:       xxx_folder  hid_dim: 768    推荐
+  # cnhubert-large: xxx_folder  hid_dim: 1024
+  # whisper-ppg:    xxx.pt      hid_dim: 1024
+  encoder: cnhubert
+  model_path: dependencies/cnhubert
   sample_rate: 16000
   hop_size: 320
   hidden_dims: 768
@@ -58,4 +49,12 @@ dictionary_paths:
 max_length: 45 # unit: second
 
 
-
+melspec_config:
+  n_mels: 128
+  sample_rate: 44100
+  win_length: 1024
+  hop_length: 512
+  n_fft: 2048
+  fmin: 40
+  fmax: 16000
+  clamp: 0.00001
