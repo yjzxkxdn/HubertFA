@@ -100,12 +100,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.vocab = yaml.safe_load(vocab_text)
         self.vowel = yaml.safe_load(vowel_text)
 
-        self.data_augmentation_enabled = False
-        self.combine_mel = hubert_config["combine_mel"]
-
         self.backbone = UNetBackbone(
-            hubert_config['hidden_dims'] if not self.combine_mel else hubert_config['hidden_dims'] + melspec_config[
-                'n_mels'],
+            hubert_config['hidden_dims'],
             model_config["hidden_dims"],
             model_config["hidden_dims"],
             ResidualBasicBlock,
@@ -457,12 +453,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             # load audio
             units = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
                                              self.melspec_config["hop_length"])
-            units = units.transpose(1, 2)
-
-            if self.combine_mel:
-                input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]
-            else:
-                input_feature = units
+            input_feature = units.transpose(1, 2)
 
             (
                 ph_seq,

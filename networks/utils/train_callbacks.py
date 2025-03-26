@@ -91,12 +91,7 @@ class VlabelerEvaluateCallback(Callback):
                 units = trainer.model.unitsEncoder.encode(waveform.unsqueeze(0),
                                                           trainer.model.melspec_config["sample_rate"],
                                                           trainer.model.melspec_config["hop_length"])
-                units = units.transpose(1, 2)
-
-                if trainer.model.combine_mel:
-                    input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]
-                else:
-                    input_feature = units
+                input_feature = units.transpose(1, 2)
 
                 (
                     ph_seq,

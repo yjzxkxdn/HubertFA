@@ -1,5 +1,4 @@
 hubert_config:
-  combine_mel: False
   # hubertsoft:     xxx.pt      hid_dim: 256
   # cnhubert:       xxx_folder  hid_dim: 768    推荐
   # cnhubert-large: xxx_folder  hid_dim: 1024
