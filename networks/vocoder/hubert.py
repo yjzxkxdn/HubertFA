@@ -35,7 +35,8 @@ class Audio2CNHubert(torch.nn.Module):
         super().__init__()
         print(' [Encoder Model] Chinese Hubert')
         print(' [Loading] ' + path)
-        self.model = HubertModel.from_pretrained(path, local_files_only=True)
+        self.model = HubertModel.from_pretrained(path, local_files_only=True).to(device)
+        self.model.eval()
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(
             path, local_files_only=True)
 
@@ -70,7 +71,7 @@ class Audio2Whisper(torch.nn.Module):
         with torch.no_grad():
             ppg = self.model.encoder(mel).squeeze().data.cpu().float().numpy()
             ppg = torch.FloatTensor(ppg[:ppgln, ]).to(self.dev)
-            return ppg[None, :, :] # [1, T, C]
+            return ppg[None, :, :]  # [1, T, C]
 
 
 class Audio2HubertSoftTTA2X:
@@ -146,12 +147,12 @@ class UnitsEncoder:
 
         is_loaded_encoder = False
         if encoder == 'hubertsoft':
-            self.model = Audio2HubertSoft(encoder_ckpt).to(device)
+            self.model = Audio2HubertSoft(encoder_ckpt, device=device)
             is_loaded_encoder = True
         if encoder == 'cnhubert':
-            self.model = Audio2CNHubert(encoder_ckpt).to(device)
+            self.model = Audio2CNHubert(encoder_ckpt, device=device)
             is_loaded_encoder = True
-        if encoder == 'whisper':
+        if encoder == 'whisper-ppg':
             self.model = Audio2Whisper(encoder_ckpt, device=device)
             is_loaded_encoder = True
         if encoder == 'hubertsofttta2x':

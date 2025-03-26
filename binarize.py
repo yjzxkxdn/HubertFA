@@ -383,7 +383,7 @@ class ForcedAlignmentBinarizer:
             {"wav_path": [i for i in (data_folder / "no_label").rglob("*.wav")]}
         )
         meta_data_df = pd.concat([meta_data_df, no_label_df])
-        meta_data_df["label_type"].fillna("no_label", inplace=True)
+        meta_data_df["label_type"] = meta_data_df["label_type"].fillna("no_label")
 
         meta_data_df.reset_index(drop=True, inplace=True)
 
@@ -416,7 +416,8 @@ def binarize(config_path: str):
 
     global_config = {
         "max_length": config["max_length"],
-        "melspec_config": config["melspec_config"]
+        "melspec_config": config["melspec_config"],
+        "hubert_config": config["hubert_config"],
     }
     os.makedirs(config["binary_folder"], exist_ok=True)
     with open(pathlib.Path(config["binary_folder"]) / "global_config.yaml", "w", encoding="utf-8") as file:

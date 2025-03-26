@@ -1,4 +1,4 @@
-model_name: mandarin_opencpop-extension-whisper
+model_name: mandarin_opencpop-extension-cnhubert
 
 # settings
 float32_matmul_precision: high
@@ -27,16 +27,6 @@ model:
   down_sampling_factor: 2
   down_sampling_times: 3
   channels_scaleup_factor: 1.3
-
-hubert_config:
-  combine_mel: False
-  # hubertsoft: xxx.pt hid_dim 256、cnhubert:xxx_folder hid_dim 768
-  encoder: 'whisper'
-  model_path: "dependencies/whisper/medium.pt"
-  sample_rate: 16000
-  hop_size: 320
-  hidden_dims: 1024
-  layer: 12  # 使用的特征层
 
 optimizer_config:
   total_steps: 100000

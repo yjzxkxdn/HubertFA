@@ -8,6 +8,17 @@ melspec_config:
   fmax: 32000
   clamp: 0.00001
 
+hubert_config:
+  combine_mel: False
+  # hubertsoft:   xxx.pt      hid_dim: 256
+  # cnhubert:     xxx_folder  hid_dim: 768
+  # whisper-ppg:  xxx.pt      hid_dim: 1024
+  encoder: 'cnhubert'
+  model_path: "dependencies/cnhubert"
+  sample_rate: 16000
+  hop_size: 320
+  hidden_dims: 768
+
 # 只检测data文件夹下，"full_label"、"weak_label"、"no_label"文件夹内数据
 data_folder: data/
 binary_folder: data/binary_base
@@ -46,13 +57,5 @@ dictionary_paths:
   - dictionary/opencpop-extension.txt
 max_length: 45 # unit: second
 
-hubert_config:
-  combine_mel: False
-  # hubertsoft: xxx.pt hid_dim 256、cnhubert:xxx_folder hid_dim 768
-  encoder: 'whisper'
-  model_path: "dependencies/whisper/medium.pt"
-  sample_rate: 16000
-  hop_size: 320
-  hidden_dims: 1024
-  layer: 12  # 使用的特征层
+
 
