@@ -189,21 +189,21 @@ class ForcedAlignmentBinarizer:
         total_time = 0.0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
             try:
-                # input_feature: [1,input_dim,T]
+                # input_feature: [1, input_dim, T]
                 if not os.path.exists(item["wav_path"]):
                     continue
-                waveform = load_wav(item.wav_path, self.device, self.sample_rate)
+                waveform = load_wav(item.wav_path, self.device, self.sample_rate)   # (L,)
 
                 # units encode
-                units_t = self.unitsEncoder.encode(waveform.unsqueeze(0), self.sample_rate, self.hop_size)
+                units_t = self.unitsEncoder.encode(waveform.unsqueeze(0), self.sample_rate, self.hop_size)  # [B, T, C]
 
-                input_feature = units_t.transpose(1, 2).squeeze(0)  # [B, T]
-                melspec = self.get_melspec(waveform, 0)  # [B, T]
+                input_feature = units_t.transpose(1, 2).squeeze(0)  # [C, T]
+                melspec = self.get_melspec(waveform, 0)  # [C, T]
 
                 if self.combine_mel:
-                    input_feature = torch.cat([input_feature, melspec], dim=0)
+                    input_feature = torch.cat([input_feature, melspec], dim=0) # [Units_C + Mel_C, T]
 
-                wav_length = len(waveform) / self.sample_rate
+                wav_length = len(waveform) / self.sample_rate   # seconds
                 T = input_feature.shape[-1]
                 if wav_length > self.max_length:
                     print(
@@ -216,11 +216,11 @@ class ForcedAlignmentBinarizer:
                     idx += 1
                     total_time += wav_length
 
-                input_feature = input_feature.unsqueeze(0)
-                melspec = melspec.unsqueeze(0)
+                input_feature = input_feature.unsqueeze(0)  # [B, C, T]
+                melspec = melspec.unsqueeze(0)  # [B, C, T]
 
                 input_feature = (input_feature - input_feature.mean(dim=[1, 2], keepdim=True)) / input_feature.std(
-                    dim=[1, 2], keepdim=True)
+                    dim=[1, 2], keepdim=True)   # [B, C, T]
 
                 h5py_item_data["input_feature"] = (
                     input_feature.cpu().numpy().astype("float32")
