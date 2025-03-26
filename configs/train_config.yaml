@@ -1,4 +1,4 @@
-model_name: mandarin_opencpop-extension-soft
+model_name: mandarin_opencpop-extension-cnhubert
 
 # settings
 float32_matmul_precision: high
@@ -30,11 +30,12 @@ model:
 
 hubert_config:
   combine_mel: False
-  encoder: 'hubertsoft'
-  model_path: "dependencies/hubert/hubert-soft-35d9f29f.pt"
+  # hubertsoft: xxx.pt hid_dim 256、cnhubert:xxx_folder hid_dim 768
+  encoder: 'cnhubert'
+  model_path: "dependencies/cnhubert"
   sample_rate: 16000
   hop_size: 320
-  hidden_dims: 256
+  hidden_dims: 768
   layer: 12  # 使用的特征层
 
 optimizer_config:

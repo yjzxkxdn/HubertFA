@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from fairseq import checkpoint_utils
 
 from torchaudio.transforms import Resample
+from transformers import Wav2Vec2FeatureExtractor, HubertModel
 
 from networks.hubert.model import HubertSoft
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
@@ -23,7 +24,24 @@ class Audio2HubertSoft(torch.nn.Module):
                 audio):  # B, T
         with torch.inference_mode():
             units = self.hubert.units(audio.unsqueeze(1))
-            return units # [1, T, B]
+            return units  # [1, T, C]
+
+
+class Audio2CNHubert(torch.nn.Module):
+    def __init__(self, path, h_sample_rate=16000, h_hop_size=320):
+        super().__init__()
+        print(' [Encoder Model] Chinese Hubert')
+        print(' [Loading] ' + path)
+        self.model = HubertModel.from_pretrained(path, local_files_only=True)
+        self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(
+            path, local_files_only=True)
+
+    def forward(self,
+                audio):  # B, T
+        with torch.inference_mode():
+            input_values = self.feature_extractor(audio, return_tensors="pt",
+                                                  sampling_rate=16000).input_values.to(audio.device).squeeze(1)
+            return self.model(input_values)["last_hidden_state"]  # [1, T, C]
 
 
 class Audio2HubertSoftTTA2X:
@@ -52,7 +70,7 @@ class Audio2HubertSoftTTA2X:
             if n > 0:
                 feats_tta = feats_tta[:, :-1, :]
         units = feats_tta  # .transpose(2, 1)
-        return units # [1, T, B]
+        return units  # [1, T, B]
 
 
 class Audio2ContentVec768L12TTA2X:
@@ -88,7 +106,7 @@ class Audio2ContentVec768L12TTA2X:
             if n > 0:
                 feats_tta = feats_tta[:, :-1, :]
         units = feats_tta  # .transpose(2, 1)
-        return units # [1, T, B]
+        return units  # [1, T, B]
 
 
 class UnitsEncoder:
@@ -100,6 +118,9 @@ class UnitsEncoder:
         is_loaded_encoder = False
         if encoder == 'hubertsoft':
             self.model = Audio2HubertSoft(encoder_ckpt).to(device)
+            is_loaded_encoder = True
+        if encoder == 'cnhubert':
+            self.model = Audio2CNHubert(encoder_ckpt).to(device)
             is_loaded_encoder = True
         if encoder == 'hubertsofttta2x':
             self.model = Audio2HubertSoftTTA2X(encoder_ckpt, device=device)
