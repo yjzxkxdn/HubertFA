@@ -313,15 +313,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ) = self.forward(input_feature.transpose(1, 2))
         if wav_length is not None:
             num_frames = int(
-                (
-                    (
-                            wav_length
-                            * self.melspec_config["scale_factor"]
-                            * self.melspec_config["sample_rate"]
-                            + 0.5
-                    )
-                )
-                / self.melspec_config["hop_length"]
+                (wav_length * self.melspec_config["sample_rate"] + 0.5) / self.melspec_config["hop_length"]
             )
             ph_frame_logits = ph_frame_logits[:, :num_frames, :]
             ph_edge_logits = ph_edge_logits[:, :num_frames]
@@ -372,9 +364,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         total_confidence = np.exp(np.mean(np.log(frame_confidence + 1e-6)) / 3)
 
         # postprocess
-        frame_length = self.melspec_config["hop_length"] / (
-                self.melspec_config["sample_rate"] * self.melspec_config["scale_factor"]
-        )
+        frame_length = self.melspec_config["hop_length"] / (self.melspec_config["sample_rate"])
         ph_time_fractional = (edge_diff[ph_time_int_pred] / 2).clip(-0.5, 0.5)
         ph_time_pred = frame_length * (
             np.concatenate(
@@ -465,9 +455,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
             melspec = self.get_melspec(waveform).detach().unsqueeze(0)
             melspec = (melspec - melspec.mean()) / melspec.std()
-            melspec = repeat(
-                melspec, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
-            )
 
             # load audio
             audio, _ = librosa.load(wav_path, sr=self.melspec_config["sample_rate"])
@@ -480,9 +467,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             units = units.transpose(1, 2)
 
             units = (units - units.mean()) / units.std()
-            units = repeat(
-                units, "B C T -> B C (T N)", N=self.melspec_config["scale_factor"]
-            )
 
             if self.combine_mel:
                 input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]

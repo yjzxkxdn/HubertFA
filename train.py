@@ -82,9 +82,6 @@ class VlabelerEvaluateCallback(Callback):
                 wav_length = waveform.shape[0] / trainer.model.melspec_config["sample_rate"]
                 melspec = self.get_melspec(waveform).detach().unsqueeze(0)
                 melspec = (melspec - melspec.mean()) / melspec.std()
-                melspec = repeat(
-                    melspec, "B C T -> B C (T N)", N=trainer.model.melspec_config["scale_factor"]
-                )
 
                 # load audio
                 audio, _ = librosa.load(wav_path, sr=trainer.model.melspec_config["sample_rate"])
@@ -97,9 +94,6 @@ class VlabelerEvaluateCallback(Callback):
                 units = units.transpose(1, 2)
 
                 units = (units - units.mean()) / units.std()
-                units = repeat(
-                    units, "B C T -> B C (T N)", N=trainer.model.melspec_config["scale_factor"]
-                )
 
                 if trainer.model.combine_mel:
                     input_feature = torch.cat([units, melspec], dim=1)  # [1, hubert + n_mels, T]

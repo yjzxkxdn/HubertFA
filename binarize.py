@@ -45,7 +45,6 @@ class ForcedAlignmentBinarizer:
         self.dictionary_paths = dictionary_paths
         self.vowel_phonemes = vowel_phonemes
 
-        self.scale_factor = melspec_config["scale_factor"]
         self.max_length = max_length
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -214,7 +213,7 @@ class ForcedAlignmentBinarizer:
                     input_feature = torch.cat([input_feature, melspec], dim=0)
 
                 wav_length = len(waveform) / self.sample_rate
-                T = input_feature.shape[-1] * self.scale_factor
+                T = input_feature.shape[-1]
                 if wav_length > self.max_length:
                     print(
                         f"Item {item.wav_path} has a length of {wav_length}s, which is too long, skip it."
@@ -229,9 +228,7 @@ class ForcedAlignmentBinarizer:
                 input_feature = input_feature.unsqueeze(0)
                 melspec = melspec.unsqueeze(0)
 
-                input_feature = (
-                                        input_feature - input_feature.mean(dim=[1, 2], keepdim=True)
-                                ) / input_feature.std(dim=[1, 2], keepdim=True)
+                input_feature = (input_feature - input_feature.mean(dim=[1, 2], keepdim=True)) / input_feature.std(dim=[1, 2], keepdim=True)
 
                 h5py_item_data["input_feature"] = (
                     input_feature.cpu().numpy().astype("float32")
@@ -253,10 +250,10 @@ class ForcedAlignmentBinarizer:
                     # ph_seq: [S]
                     ph_seq = np.array([]).astype("int32")
 
-                    # ph_edge: [scale_factor * T]
+                    # ph_edge: [T]
                     ph_edge = np.zeros([T], dtype="float32")
 
-                    # ph_frame: [scale_factor * T]
+                    # ph_frame: [T]
                     ph_frame = np.zeros(T, dtype="int32")
 
                     # ph_mask: [vocab_size]
@@ -266,10 +263,10 @@ class ForcedAlignmentBinarizer:
                     ph_seq = np.array(item.ph_seq).astype("int32")
                     ph_seq = ph_seq[ph_seq != 0]
 
-                    # ph_edge: [scale_factor * T]
+                    # ph_edge: [T]
                     ph_edge = np.zeros([T], dtype="float32")
 
-                    # ph_frame: [scale_factor * T]
+                    # ph_frame: [T]
                     ph_frame = np.zeros(T, dtype="int32")
 
                     # ph_mask: [vocab_size]
@@ -282,11 +279,9 @@ class ForcedAlignmentBinarizer:
                     not_sp_idx = ph_seq != 0
                     ph_seq = ph_seq[not_sp_idx]
 
-                    # ph_edge: [scale_factor * T]
+                    # ph_edge: [T]
                     ph_dur = np.array(item.ph_dur).astype("float32")
-                    ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / (
-                            self.frame_length / self.scale_factor
-                    )
+                    ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length
                     ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
 
                     ph_interval = ph_interval[:, not_sp_idx]
@@ -308,7 +303,7 @@ class ForcedAlignmentBinarizer:
                         ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
                         ph_edge = ph_edge * 0.8 + 0.1
 
-                    # ph_frame: [scale_factor * T]
+                    # ph_frame: [T]
                     ph_frame = np.zeros(T, dtype="int32")
                     if len(ph_seq) > 0:
                         for ph_id, st, ed in zip(
