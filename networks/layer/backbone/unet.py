@@ -8,17 +8,17 @@ from networks.layer.scaling.stride_conv import DownSampling, UpSampling
 
 class UNetBackbone(nn.Module):
     def __init__(
-        self,
-        input_dims,
-        output_dims,
-        hidden_dims,
-        block,
-        down_sampling,
-        up_sampling,
-        down_sampling_factor=2,
-        down_sampling_times=5,
-        channels_scaleup_factor=2,
-        **kwargs
+            self,
+            input_dims,
+            output_dims,
+            hidden_dims,
+            block,
+            down_sampling,
+            up_sampling,
+            down_sampling_factor=2,
+            down_sampling_times=5,
+            channels_scaleup_factor=2,
+            **kwargs
     ):
         """_summary_
 
@@ -39,7 +39,7 @@ class UNetBackbone(nn.Module):
         self.output_dims = output_dims
         self.hidden_dims = hidden_dims
 
-        self.divisible_factor = down_sampling_factor**down_sampling_times
+        self.divisible_factor = down_sampling_factor ** down_sampling_times
 
         self.encoders = nn.ModuleList()
         self.encoders.append(block(input_dims, hidden_dims, **kwargs))
@@ -49,12 +49,12 @@ class UNetBackbone(nn.Module):
                 nn.Sequential(
                     down_sampling(
                         int(channels_scaleup_factor ** (i - 1)) * hidden_dims,
-                        int(channels_scaleup_factor**i) * hidden_dims,
+                        int(channels_scaleup_factor ** i) * hidden_dims,
                         down_sampling_factor,
                     ),
                     block(
-                        int(channels_scaleup_factor**i) * hidden_dims,
-                        int(channels_scaleup_factor**i) * hidden_dims,
+                        int(channels_scaleup_factor ** i) * hidden_dims,
+                        int(channels_scaleup_factor ** i) * hidden_dims,
                         **kwargs
                     ),
                 )
@@ -63,16 +63,16 @@ class UNetBackbone(nn.Module):
         self.bottle_neck = nn.Sequential(
             down_sampling(
                 int(channels_scaleup_factor ** (down_sampling_times - 1)) * hidden_dims,
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+                int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
                 down_sampling_factor,
             ),
             block(
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+                int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
+                int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
                 **kwargs
             ),
             up_sampling(
-                int(channels_scaleup_factor**down_sampling_times) * hidden_dims,
+                int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
                 int(channels_scaleup_factor ** (down_sampling_times - 1)) * hidden_dims,
                 down_sampling_factor,
             ),

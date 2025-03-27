@@ -36,16 +36,16 @@ class CTCGHMLoss(torch.nn.Module):
             (-raw_loss / input_lengths).exp().clamp(1e-6, 1 - 1e-6)
         ).detach()  # 值域为[0, 1]
         loss_weighted = (
-            raw_loss
-            / (
-                self.ema[
-                    torch.floor(loss_for_ema * self.num_bins)
-                    .detach()
-                    .long()
-                    .clamp(0, self.num_bins - 1)
-                ].detach()
-                + 1e-10
-            ).detach()
+                raw_loss
+                / (
+                        self.ema[
+                            torch.floor(loss_for_ema * self.num_bins)
+                        .detach()
+                        .long()
+                        .clamp(0, self.num_bins - 1)
+                        ].detach()
+                        + 1e-10
+                ).detach()
         )
         loss_final = loss_weighted.mean()
 
@@ -71,8 +71,8 @@ class BCEGHMLoss(torch.nn.Module):
         if mask is None:
             mask = torch.ones_like(pred_porb).to(pred_porb.device)
         assert (
-            pred_porb.shape == target_porb.shape
-            and pred_porb.shape[:2] == mask.shape[:2]
+                pred_porb.shape == target_porb.shape
+                and pred_porb.shape[:2] == mask.shape[:2]
         )
         if len(mask.shape) < len(pred_porb.shape):
             mask = mask.unsqueeze(-1)
@@ -145,8 +145,8 @@ class MultiLabelGHMLoss(torch.nn.Module):
         if mask is None:
             mask = torch.ones_like(pred_logits).to(pred_logits.device)
         assert (
-            pred_logits.shape == target_porb.shape
-            and pred_logits.shape[:2] == mask.shape[:2]
+                pred_logits.shape == target_porb.shape
+                and pred_logits.shape[:2] == mask.shape[:2]
         )
         if len(mask.shape) < len(pred_logits.shape):
             mask = mask.unsqueeze(-1)
@@ -279,7 +279,7 @@ class GHMLoss(torch.nn.Module):
             # update ema
             # "Elements lower than min and higher than max and NaN elements are ignored."
             target_label = (
-                target_label + (self.num_classes + 10) * time_mask.logical_not().long()
+                    target_label + (self.num_classes + 10) * time_mask.logical_not().long()
             )
             GD_index = GD_index + (self.num_bins + 10) * time_mask.logical_not().long()
             class_hist = torch.bincount(

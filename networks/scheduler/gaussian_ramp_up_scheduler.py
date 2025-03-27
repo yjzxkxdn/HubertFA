@@ -19,9 +19,9 @@ class GaussianRampUpScheduler:
             return np.exp(
                 -5
                 * (
-                    1
-                    - (self.curr_steps - self.start_steps)
-                    / (self.end_steps - self.start_steps)
+                        1
+                        - (self.curr_steps - self.start_steps)
+                        / (self.end_steps - self.start_steps)
                 )
                 ** 2
             )

@@ -134,6 +134,7 @@ class MyG2P(BaseG2P):
         self.my_param = kwargs['my_param']
         ...
 ```
+
 **Note: The g2p module and the AP_detector module share the kwargs parameters.**
 
 ### 4.2 `_g2p` Method
@@ -142,7 +143,8 @@ The `_g2p` method takes `text` as a parameter, which is a string representing th
 
 The return value of the `_g2p` method is a tuple containing three elements:
 
-- `ph_seq`: A list of phonemes, with SP as the silence phoneme. The first and last phonemes should be `SP`, and there should not be more than two consecutive `SP`s at any position.
+- `ph_seq`: A list of phonemes, with SP as the silence phoneme. The first and last phonemes should be `SP`, and there
+  should not be more than two consecutive `SP`s at any position.
 - `word_seq`: A list of words.
 - `ph_idx_to_word_idx`: `ph_idx_to_word_idx[i] = j` means that the ith phoneme belongs to the jth word. If
   `ph_idx_to_word_idx[i] = -1`, then the ith phoneme is a silence phoneme.

@@ -15,7 +15,7 @@ from networks.layer.block.resnet_block import ResidualBasicBlock
 from networks.layer.scaling.stride_conv import DownSampling, UpSampling
 from networks.loss.BinaryEMDLoss import BinaryEMDLoss
 from networks.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
-from networks.vocoder.hubert import UnitsEncoder
+from tools.encoder import UnitsEncoder
 from tools.get_melspec import MelSpecExtractor
 from tools.load_wav import load_wav
 from tools.plot import plot_for_valid
@@ -82,6 +82,71 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
     return dp, backtrack_s, curr_ph_max_prob_log
 
 
+def _decode(ph_seq_id, ph_prob_log, edge_prob):
+    # ph_seq_id: (S)
+    # ph_prob_log: (T, vocab_size)
+    # edge_prob: (T,2)
+    T = ph_prob_log.shape[0]
+    S = len(ph_seq_id)
+    # not_SP_num = (ph_seq_id > 0).sum()
+    prob_log = ph_prob_log[:, ph_seq_id]
+
+    edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
+    not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
+
+    # init
+    curr_ph_max_prob_log = np.full(S, -np.inf)
+    dp = np.full((T, S), -np.inf, dtype="float32")  # (T, S)
+    backtrack_s = np.full_like(dp, -1, dtype="int32")
+
+    # 如果mode==forced，只能从SP开始或者从第一个音素开始
+    dp[0, 0] = prob_log[0, 0]
+    curr_ph_max_prob_log[0] = prob_log[0, 0]
+    if ph_seq_id[0] == 0 and prob_log.shape[-1] > 1:
+        dp[0, 1] = prob_log[0, 1]
+        curr_ph_max_prob_log[1] = prob_log[0, 1]
+
+    # forward
+    prob3_pad_len = 2 if S >= 2 else 1
+    dp, backtrack_s, curr_ph_max_prob_log = forward_pass(
+        T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
+        prob3_pad_len
+    )
+
+    # backward
+    ph_idx_seq = []
+    ph_time_int = []
+    frame_confidence = []
+
+    # 如果mode==forced，只能从最后一个音素或者SP结束
+    if S >= 2 and dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
+        s = S - 2
+    else:
+        s = S - 1
+
+    for t in np.arange(T - 1, -1, -1):
+        assert backtrack_s[t, s] >= 0 or t == 0
+        frame_confidence.append(dp[t, s])
+        if backtrack_s[t, s] != 0:
+            ph_idx_seq.append(s)
+            ph_time_int.append(t)
+            s -= backtrack_s[t, s]
+    ph_idx_seq.reverse()
+    ph_time_int.reverse()
+    frame_confidence.reverse()
+    frame_confidence = np.exp(
+        np.diff(
+            np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
+        )
+    )
+
+    return (
+        np.array(ph_idx_seq),
+        np.array(ph_time_int),
+        np.array(frame_confidence),
+    )
+
+
 class LitForcedAlignmentTask(pl.LightningModule):
     def __init__(
             self,
@@ -117,7 +182,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.optimizer_config = optimizer_config
 
         self.pseudo_label_ratio = loss_config["function"]["pseudo_label_ratio"]
-        self.pseudo_label_auto_theshold = 0.5
+        self.pseudo_label_auto_threshold = 0.5
 
         self.losses_names = [
             "ph_frame_GHM_loss",
@@ -213,70 +278,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.device
         )
 
-    def _decode(self, ph_seq_id, ph_prob_log, edge_prob):
-        # ph_seq_id: (S)
-        # ph_prob_log: (T, vocab_size)
-        # edge_prob: (T,2)
-        T = ph_prob_log.shape[0]
-        S = len(ph_seq_id)
-        # not_SP_num = (ph_seq_id > 0).sum()
-        prob_log = ph_prob_log[:, ph_seq_id]
-
-        edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
-        not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
-
-        # init
-        curr_ph_max_prob_log = np.full(S, -np.inf)
-        dp = np.full((T, S), -np.inf, dtype="float32")  # (T, S)
-        backtrack_s = np.full_like(dp, -1, dtype="int32")
-
-        # 如果mode==forced，只能从SP开始或者从第一个音素开始
-        dp[0, 0] = prob_log[0, 0]
-        curr_ph_max_prob_log[0] = prob_log[0, 0]
-        if ph_seq_id[0] == 0 and prob_log.shape[-1] > 1:
-            dp[0, 1] = prob_log[0, 1]
-            curr_ph_max_prob_log[1] = prob_log[0, 1]
-
-        # forward
-        prob3_pad_len = 2 if S >= 2 else 1
-        dp, backtrack_s, curr_ph_max_prob_log = forward_pass(
-            T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-            prob3_pad_len
-        )
-
-        # backward
-        ph_idx_seq = []
-        ph_time_int = []
-        frame_confidence = []
-
-        # 如果mode==forced，只能从最后一个音素或者SP结束
-        if S >= 2 and dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
-            s = S - 2
-        else:
-            s = S - 1
-
-        for t in np.arange(T - 1, -1, -1):
-            assert backtrack_s[t, s] >= 0 or t == 0
-            frame_confidence.append(dp[t, s])
-            if backtrack_s[t, s] != 0:
-                ph_idx_seq.append(s)
-                ph_time_int.append(t)
-                s -= backtrack_s[t, s]
-        ph_idx_seq.reverse()
-        ph_time_int.reverse()
-        frame_confidence.reverse()
-        frame_confidence = np.exp(
-            np.diff(
-                np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
-            )
-        )
-
-        return (
-            np.array(ph_idx_seq),
-            np.array(ph_time_int),
-            np.array(frame_confidence),
-        )
-
     def infer_once(
             self,
             input_feature,  # [1, C, T]
@@ -303,7 +304,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_frame_logits,  # (B, T, vocab_size)
                 ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
-                h
             ) = self.forward(input_feature.transpose(1, 2))
         if wav_length is not None:
             num_frames = int(
@@ -350,7 +350,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_idx_seq,
             ph_time_int_pred,
             frame_confidence,
-        ) = self._decode(
+        ) = _decode(
             ph_seq_id,
             ph_prob_log,
             edge_prob,
@@ -441,41 +441,37 @@ class LitForcedAlignmentTask(pl.LightningModule):
             self.get_melspec = MelSpecExtractor(**self.melspec_config)
 
     def predict_step(self, batch, batch_idx):
-        try:
-            wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
-            waveform = load_wav(
-                wav_path, self.device, self.melspec_config["sample_rate"]
-            )
-            wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
+        wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
+        waveform = load_wav(
+            wav_path, self.device, self.melspec_config["sample_rate"]
+        )
+        wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
 
-            melspec = self.get_melspec(waveform)
-            input_feature = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
-                                                     self.melspec_config["hop_length"])
+        melspec = self.get_melspec(waveform)
+        input_feature = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
+                                                 self.melspec_config["hop_length"])
 
-            (
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
-                confidence,
-                _,
-                _,
-            ) = self.infer_once(
-                input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
-            )
+        (
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
+            confidence,
+            _,
+            _,
+        ) = self.infer_once(
+            input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
+        )
 
-            return (
-                wav_path,
-                wav_length,
-                confidence,
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
-            )
-        except Exception as e:
-            e.args += (f"{str(wav_path)}",)
-            raise e
+        return (
+            wav_path,
+            wav_length,
+            confidence,
+            ph_seq,
+            ph_intervals,
+            word_seq,
+            word_intervals,
+        )
 
     def _get_full_label_loss(
             self,
@@ -500,7 +496,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
         mask = (mask < input_feature_lengths.unsqueeze(1)).to(ph_frame_logits.dtype)
 
         # ph_frame_loss
-        # print((mask.unsqueeze(-1) * ph_mask.unsqueeze(1)).shape, ph_frame_pred.shape)
         ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
             ph_frame_logits,
             ph_frame_gt,
@@ -604,13 +599,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
         pseudo_label_mask = (  # (B//2, T)
                 mask
                 & (pseudo_label1 == pseudo_label2)
-                & (gradient_magnitude < self.pseudo_label_auto_theshold)
+                & (gradient_magnitude < self.pseudo_label_auto_threshold)
         )
 
         if pseudo_label_mask.sum() / mask.sum() < self.pseudo_label_ratio:
-            self.pseudo_label_auto_theshold += 0.005
+            self.pseudo_label_auto_threshold += 0.005
         else:
-            self.pseudo_label_auto_theshold -= 0.005
+            self.pseudo_label_auto_threshold -= 0.005
 
         if pseudo_label_mask.any():
             pseudo_label_loss = self.pseudo_label_GHM_loss_fn(
@@ -636,8 +631,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_mask,  # (B vocab_size)
             input_feature_lengths,  # (B)
             label_type,  # (B)
-            valid=False,
-            h=None  # 新增参数：主干网络特征 [B,T,D]
+            valid=False
     ):
         full_label_idx = label_type >= 2
         weak_label_idx = label_type >= 1
@@ -716,7 +710,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ph_frame_logits = logits[:, :, 2:]
         ph_edge_logits = logits[:, :, 0]
         ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
-        return ph_frame_logits, ph_edge_logits, ctc_logits, h
+        return ph_frame_logits, ph_edge_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):
         try:
@@ -736,7 +730,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_frame_logits,  # (B, T, vocab_size)
                 ph_edge_logits,  # (B, T)
                 ctc_logits,  # (B, T, vocab_size)
-                h  # 新增参数：主干网络特征 [B,T,D]
             ) = self.forward(input_feature.transpose(1, 2))
 
             losses = self._get_loss(
@@ -750,8 +743,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_mask,
                 input_feature_lengths,
                 label_type,
-                valid=False,
-                h=h
+                valid=False
             )
 
             schedule_weight = self._losses_schedulers_call()
@@ -820,7 +812,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_frame_logits,  # (B, T, vocab_size)
             ph_edge_logits,  # (B, T)
             ctc_logits,  # (B, T, vocab_size)
-            h,
         ) = self.forward(input_feature.transpose(1, 2))
 
         losses = self._get_loss(
@@ -834,8 +825,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_mask,
             input_feature_lengths,
             label_type,
-            valid=True,
-            h=h
+            valid=True
         )
 
         weights = self._losses_schedulers_call() * self.losses_weights
