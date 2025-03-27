@@ -17,17 +17,13 @@ from networks.utils.metrics import (
 )
 
 
-def remove_ignored_phonemes(ignored_phonemes_list: str, point_tier: PointTier):
+def remove_ignored_phonemes(ignored_phonemes_list: list[str], point_tier: PointTier):
     res_tier = PointTier(name=point_tier.name)
     if point_tier[0].mark not in ignored_phonemes_list:
         res_tier.addPoint(point_tier[0])
     for i in range(len(point_tier) - 1):
-        if (
-                point_tier[i].mark in ignored_phonemes_list
-                and point_tier[i + 1].mark in ignored_phonemes_list
-        ):
+        if point_tier[i].mark in ignored_phonemes_list and point_tier[i + 1].mark in ignored_phonemes_list:
             continue
-
         res_tier.addPoint(point_tier[i + 1])
 
     return res_tier
@@ -66,9 +62,9 @@ def main(pred: str, target: str, recursive: bool, strict: bool, ignore: str):
     pred_dir = pathlib.Path(pred)
     target_dir = pathlib.Path(target)
     if recursive:
-        iterable = pred_dir.rglob("*.TextGrid")
+        iterable = list(pred_dir.rglob("*.TextGrid"))
     else:
-        iterable = pred_dir.glob("*.TextGrid")
+        iterable = list(pred_dir.glob("*.TextGrid"))
     ignored = ignore.split(",")
     metrics: Dict[str, Metric] = {
         "BoundaryEditRatio": BoundaryEditRatio(),

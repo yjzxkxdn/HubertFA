@@ -10,10 +10,10 @@ import textgrid as tg
 
 
 def durations_to_tier(
-    marks: List,
-    durarions: Union[List, np.ndarray],
-    name="phones",
-    start_time=0.0,
+        marks: List,
+        durarions: Union[List, np.ndarray],
+        name="phones",
+        start_time=0.0,
 ) -> tg.PointTier:
     assert len(marks) == len(durarions)
 
@@ -62,13 +62,13 @@ def tier_from_htk(lab_path: str, tier_name="phones") -> tg.PointTier:
 
 def textgrid_from_file(textgrid_path: str) -> tg.TextGrid:
     """Read a TextGrid file and return a TextGrid object."""
-    textgrid = tg.TextGrid()
-    textgrid.read(textgrid_path, encoding="utf-8")
-    for idx, tier in enumerate(textgrid):
+    _textgrid = tg.TextGrid()
+    _textgrid.read(textgrid_path, encoding="utf-8")
+    for idx, tier in enumerate(_textgrid):
         if isinstance(tier, tg.IntervalTier):
-            textgrid.tiers[idx] = interval_tier_to_point_tier(tier)
+            _textgrid.tiers[idx] = interval_tier_to_point_tier(tier)
 
-    return textgrid
+    return _textgrid
 
 
 def textgrids_from_csv(csv_path: str) -> List[Tuple[str, tg.TextGrid]]:
@@ -79,13 +79,13 @@ def textgrids_from_csv(csv_path: str) -> List[Tuple[str, tg.TextGrid]]:
     df = df.loc[:, ["name", "ph_seq", "ph_dur"]]
 
     for _, row in df.iterrows():
-        textgrid = tg.TextGrid()
+        _textgrid = tg.TextGrid()
         tier = durations_to_tier(
             row["ph_seq"].split(), list(map(float, row["ph_dur"].split()))
         )
-        textgrid.append(tier)
+        _textgrid.append(tier)
 
-        textgrids.append((row["name"], textgrid))
+        textgrids.append((row["name"], _textgrid))
 
     return textgrids
 
@@ -101,25 +101,25 @@ def save_tier_to_htk(tier: tg.PointTier, lab_path: str) -> None:
             )
 
 
-def save_textgrid(path: str, textgrid: tg.TextGrid) -> None:
+def save_textgrid(path: str, _textgrid: tg.TextGrid) -> None:
     """Save a TextGrid object to a TextGrid file."""
-    for i in range(len(textgrid)):
-        if textgrid[i].maxTime is None:
-            textgrid[i].maxTime = textgrid[i][-1].time
-        if isinstance(textgrid[i], tg.PointTier):
-            textgrid.tiers[i] = point_tier_to_interval_tier(textgrid[i])
-    textgrid.write(path)
+    for i in range(len(_textgrid)):
+        if _textgrid[i].maxTime is None:
+            _textgrid[i].maxTime = _textgrid[i][-1].time
+        if isinstance(_textgrid[i], tg.PointTier):
+            _textgrid.tiers[i] = point_tier_to_interval_tier(_textgrid[i])
+    _textgrid.write(path)
 
 
 def save_textgrids_to_csv(
-    path: str,
-    textgrids: List[Tuple[str, tg.TextGrid]],
-    precision=6,
+        path: str,
+        textgrids: List[Tuple[str, tg.TextGrid]],
+        precision=6,
 ) -> None:
     """Save a list of (filename, TextGrid) tuples to a CSV file."""
     rows = []
-    for name, textgrid in textgrids:
-        tier = textgrid[-1]
+    for name, _textgrid in textgrids:
+        tier = _textgrid[-1]
         ph_seq = " ".join(
             ["" if point.mark == "" else point.mark for point in tier[:-1]]
         )

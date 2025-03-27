@@ -80,7 +80,7 @@ class VlabelerEvaluateCallback(Callback):
     def on_validation_start(self, trainer, pl_module):
         tg_paths = []
         predictions = []
-        for batch in tqdm.tqdm(self.dataset, desc="evaluate_forward:"):
+        for batch in tqdm.tqdm(self.dataset, desc="evaluate_forward:", total=len(self.dataset)):
             input_feature, mel_spec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, wav_path, tg_path = batch
             tg_paths.append(tg_path)
 
@@ -95,7 +95,7 @@ class VlabelerEvaluateCallback(Callback):
         exporter = Exporter(predictions, log, out_tg_dir)
         exporter.export(['textgrid'])
 
-        iterable = out_tg_dir.rglob("*.TextGrid")
+        iterable = list(out_tg_dir.rglob("*.TextGrid"))
 
         metrics: Dict[str, Metric] = {
             "BoundaryEditRatio": BoundaryEditRatio(),
