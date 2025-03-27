@@ -664,70 +664,88 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ctc_logits,  # (B, T, vocab_size)
             ph_frame_gt,  # (B, T)
             ph_edge_gt,  # (B, T)
-            ph_seq_gt,  # (B S)
+            ph_seq_gt,  # (B, S)
             ph_seq_lengths_gt,  # (B)
-            ph_mask,  # (B vocab_size)
+            ph_mask,  # (B, vocab_size)
             input_feature_lengths,  # (B)
             label_type,  # (B)
             valid=False
     ):
-        full_label_idx = label_type >= 2
-        weak_label_idx = label_type >= 1
-        not_full_label_idx = label_type < 2
-        ZERO = torch.tensor(0.0, requires_grad=True).to(self.device)
+        device = ph_frame_logits.device
+        ZERO = torch.tensor(0.0, device=device, requires_grad=True)
 
-        if full_label_idx.any():
-            (
-                ph_frame_GHM_loss,
-                ph_edge_GHM_loss,
-                ph_edge_EMD_loss,
-                ph_edge_diff_loss,
-            ) = self._get_full_label_loss(
-                ph_frame_logits[full_label_idx, :, :],
-                ph_edge_logits[full_label_idx, :],
-                ph_frame_gt[full_label_idx, :],
-                ph_edge_gt[full_label_idx, :],
-                input_feature_lengths[full_label_idx],
-                ph_mask[full_label_idx, :],
-                valid,
-            )
-        else:
-            ph_frame_GHM_loss = ph_edge_GHM_loss = ZERO
-            ph_edge_EMD_loss = ph_edge_diff_loss = ZERO
+        full_mask = label_type >= 2
+        weak_mask = label_type >= 1
 
-        # TODO:这种pack方式无法处理只有batch中的一部分需要计算Loss的情况，改掉
-        if weak_label_idx.any():
-            ctc_GHM_loss = self._get_weak_label_loss(
-                ctc_logits[weak_label_idx, :, :],
-                ph_mask[weak_label_idx, :],
-                ph_seq_gt[weak_label_idx, :],
-                ph_seq_lengths_gt[weak_label_idx],
-                input_feature_lengths[weak_label_idx],
-                valid,
+        time_mask = torch.arange(ph_frame_logits.shape[1], device=device)[None, :] < input_feature_lengths[:, None]
+        time_mask = time_mask.float()
+
+        ph_frame_GHM_loss = ZERO
+        ph_edge_GHM_loss = ZERO
+        ph_edge_EMD_loss = ZERO
+        ph_edge_diff_loss = ZERO
+
+        if torch.any(full_mask):
+            selected_logits = ph_frame_logits[full_mask]
+            selected_edges = ph_edge_logits[full_mask]
+            selected_gt = ph_frame_gt[full_mask]
+            selected_edge_gt = ph_edge_gt[full_mask]
+            selected_ph_mask = ph_mask[full_mask]
+            selected_time_mask = time_mask[full_mask]
+
+            edge_diff_gt = (selected_edge_gt[:, 1:] - selected_edge_gt[:, :-1])
+            edge_diff_gt = (edge_diff_gt + 1) / 2
+
+            edge_diff_pred = torch.sigmoid(selected_edges[:, 1:]) - torch.sigmoid(selected_edges[:, :-1])
+            edge_diff_pred = (edge_diff_pred + 1) / 2
+
+            valid_diff_mask = selected_time_mask[:, 1:] > 0
+            ph_edge_diff_loss = self.ph_edge_diff_GHM_loss_fn(
+                edge_diff_pred.unsqueeze(-1),  # (B,T-1,1)
+                edge_diff_gt.unsqueeze(-1),  # (B,T-1,1)
+                valid_diff_mask.unsqueeze(-1),
+                valid
+            ) if valid_diff_mask.any() else ZERO
+
+            ph_frame_GHM_loss = self.ph_frame_GHM_loss_fn(
+                selected_logits, selected_gt,
+                selected_ph_mask.unsqueeze(1) * selected_time_mask.unsqueeze(-1),
+                valid
             )
-        else:
-            ctc_GHM_loss = ZERO
+
+            ph_edge_GHM_loss = self.ph_edge_GHM_loss_fn(
+                selected_edges.unsqueeze(-1),
+                selected_edge_gt.unsqueeze(-1),
+                selected_time_mask.unsqueeze(-1),
+                valid
+            )
+
+            ph_edge_EMD_loss = self.EMD_loss_fn(
+                torch.sigmoid(selected_edges) * selected_time_mask,
+                selected_edge_gt * selected_time_mask
+            )
+
+        ctc_GHM_loss = ZERO
+        if torch.any(weak_mask):
+            weak_logits = ctc_logits[weak_mask]
+            weak_ph_mask = ph_mask[weak_mask]
+            weak_seq_gt = ph_seq_gt[weak_mask]
+            weak_seq_len = ph_seq_lengths_gt[weak_mask]
+            weak_time_mask = input_feature_lengths[weak_mask]
+
+            ctc_log_probs = torch.log_softmax(weak_logits, dim=-1)
+            ctc_log_probs = ctc_log_probs.permute(1, 0, 2)  # (T, B, C)
+
+            ctc_GHM_loss = self.CTC_GHM_loss_fn(
+                ctc_log_probs,
+                weak_seq_gt,
+                weak_time_mask,
+                weak_seq_len,
+                valid
+            )
 
         consistency_loss = ZERO
         pseudo_label_loss = ZERO
-
-        # # 新增元音边界损失计算
-        # vowel_boundary_loss = ZERO
-        # if full_label_idx.any() and h is not None:  # 仅在完整标注数据上计算
-        #     # 获取边界概率和音素标签
-        #     boundary_probs = torch.sigmoid(ph_edge_logits[full_label_idx])
-        #     ph_labels = ph_frame_gt[full_label_idx].long()
-        #
-        #     # 提取对应特征
-        #     selected_features = h[full_label_idx]  # [B_full, T, D]
-        #
-        #     # 计算损失（需要确保batch内有数据）
-        #     if selected_features.shape[0] > 0:
-        #         vowel_boundary_loss = self.vowel_boundary_loss_fn(
-        #             selected_features,
-        #             boundary_probs,
-        #             ph_labels
-        #         )
 
         losses = [
             ph_frame_GHM_loss,
@@ -736,8 +754,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_edge_diff_loss,
             ctc_GHM_loss,
             consistency_loss,
-            pseudo_label_loss,
-            # vowel_boundary_loss
+            pseudo_label_loss
         ]
 
         return losses
