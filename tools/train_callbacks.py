@@ -115,8 +115,8 @@ class VlabelerEvaluateCallback(Callback):
 
             pred_tier = label.textgrid_from_file(pred_file)[-1]
             target_tier = label.textgrid_from_file(target_file)[-1]
-            pred_tier = remove_ignored_phonemes("", pred_tier)
-            target_tier = remove_ignored_phonemes("", target_tier)
+            pred_tier = remove_ignored_phonemes([""], pred_tier)
+            target_tier = remove_ignored_phonemes([""], target_tier)
 
             for metric in metrics.values():
                 metric.update(pred_tier, target_tier)
