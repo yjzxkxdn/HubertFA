@@ -84,4 +84,4 @@ class MelSpecExtractor:
             ).to(device)
 
     def __call__(self, waveform, key_shift=0):
-        return melspec_transform(waveform.unsqueeze(0)).squeeze(0)
+        return melspec_transform(waveform.unsqueeze(0))

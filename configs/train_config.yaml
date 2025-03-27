@@ -7,12 +7,6 @@ random_seed: 123456
 # dataloader
 binary_folder: data/binary_base
 
-# 可留空，此时VlabelerEditRatio不生效
-# 临时格式为：evaluate_folder/spk/wavs/xxx.wav && xxx.lab、evaluate_folder/spk/TextGrid/xxx.TextGrid
-# TextGrid建议使用人工修正后的文件作为标定，仅包含"SP"和模型训练集中出现过的音素
-evaluate_folder: data/evaluate
-evaluate_dictionary: dictionary/opencpop-extension.txt
-
 dataloader_workers: 0
 dataloader_prefetch_factor: 2
 oversampling_weights: [ 1, 1, 1 ] # full_label, weak_label, no_label

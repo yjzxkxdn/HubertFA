@@ -21,6 +21,7 @@ class Exporter:
                 word_seq,
                 word_intervals,
         ) in self.predictions:
+            wav_path = pathlib.Path(wav_path)
             tg = textgrid.TextGrid()
             word_tier = textgrid.IntervalTier(name="words")
             ph_tier = textgrid.IntervalTier(name="phones")

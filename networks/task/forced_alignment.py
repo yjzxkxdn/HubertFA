@@ -101,7 +101,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.vowel = yaml.safe_load(vowel_text)
 
         self.backbone = UNetBackbone(
-            hubert_config['hidden_dims'],
+            hubert_config["channel"],
             model_config["hidden_dims"],
             model_config["hidden_dims"],
             ResidualBasicBlock,
@@ -278,14 +278,14 @@ class LitForcedAlignmentTask(pl.LightningModule):
             np.array(frame_confidence),
         )
 
-    def _infer_once(
+    def infer_once(
             self,
-            input_feature,  # [1, B, T]
-            melspec,  # [1, B, T]
-            wav_length,
-            ph_seq,
-            word_seq=None,
-            ph_idx_to_word_idx=None,
+            input_feature,  # [1, C, T]
+            melspec,  # [1, C, T]
+            wav_length: float,
+            ph_seq: list[str],
+            word_seq: list[str] = None,
+            ph_idx_to_word_idx: list[int] = None,
             return_ctc=False,
             return_plot=False,
     ):
@@ -448,12 +448,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 wav_path, self.device, self.melspec_config["sample_rate"]
             )
             wav_length = waveform.shape[0] / self.melspec_config["sample_rate"]
-            melspec = self.get_melspec(waveform).detach().unsqueeze(0)
 
-            # load audio
-            units = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
-                                             self.melspec_config["hop_length"])
-            input_feature = units.transpose(1, 2)
+            melspec = self.get_melspec(waveform)
+            input_feature = self.unitsEncoder.encode(waveform.unsqueeze(0), self.melspec_config["sample_rate"],
+                                                     self.melspec_config["hop_length"])
 
             (
                 ph_seq,
@@ -463,7 +461,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 confidence,
                 _,
                 _,
-            ) = self._infer_once(
+            ) = self.infer_once(
                 input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
             )
 
@@ -802,7 +800,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 continue
             ph_seq_g2p.append(self.vocab[ph])
             ph_seq_g2p.append("SP")
-        _, _, _, _, _, ctc, fig = self._infer_once(
+        _, _, _, _, _, ctc, fig = self.infer_once(
             input_feature,
             melspec,
             None,

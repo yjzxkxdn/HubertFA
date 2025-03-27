@@ -1,3 +1,4 @@
+import glob
 import os
 import pathlib
 import warnings
@@ -10,6 +11,7 @@ import torch
 import yaml
 from tqdm import tqdm
 
+import networks.g2p.dictionary_g2p
 from networks.utils.get_melspec import MelSpecExtractor
 from networks.utils.load_wav import load_wav
 from networks.vocoder.hubert import UnitsEncoder
@@ -20,6 +22,7 @@ class ForcedAlignmentBinarizer:
             self,
             data_folder,
             binary_folder,
+            evaluate_dictionary,
             valid_set_size,
             valid_sets,
             valid_set_preferred_folders,
@@ -32,6 +35,7 @@ class ForcedAlignmentBinarizer:
     ):
         self.data_folder = pathlib.Path(data_folder)
         self.binary_folder = pathlib.Path(binary_folder)
+        self.evaluate_dictionary = pathlib.Path(evaluate_dictionary)
 
         self.valid_set_size = valid_set_size
         self.valid_sets = valid_sets
@@ -59,6 +63,8 @@ class ForcedAlignmentBinarizer:
             hubert_config["sample_rate"],
             hubert_config["hop_size"],
             self.device)
+
+        self.hubert_channel = hubert_config["channel"]
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -167,6 +173,107 @@ class ForcedAlignmentBinarizer:
             self.binary_folder
         )
 
+        self.binarize_evaluate(vocab, self.binary_folder)
+
+    def make_ph_data(self, vocab, T, label_type_id, raw_ph_seq, raw_ph_dur):
+        if label_type_id == 0:
+            # ph_seq: [S]
+            ph_seq = np.array([]).astype("int32")
+
+            # ph_edge: [T]
+            ph_edge = np.zeros([T], dtype="float32")
+
+            # ph_frame: [T]
+            ph_frame = np.zeros(T, dtype="int32")
+
+            # ph_mask: [vocab_size]
+            ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
+        elif label_type_id == 1:
+            # ph_seq: [S]
+            ph_seq = np.array(raw_ph_seq).astype("int32")
+            ph_seq = ph_seq[ph_seq != 0]
+
+            # ph_edge: [T]
+            ph_edge = np.zeros([T], dtype="float32")
+
+            # ph_frame: [T]
+            ph_frame = np.zeros(T, dtype="int32")
+
+            # ph_mask: [vocab_size]
+            ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
+            ph_mask[ph_seq] = 1
+            ph_mask[0] = 1
+        elif label_type_id == 2:
+            # ph_seq: [S]
+            ph_seq = np.array(raw_ph_seq).astype("int32")
+            not_sp_idx = ph_seq != 0
+            ph_seq = ph_seq[not_sp_idx]
+
+            # ph_edge: [T]
+            ph_dur = np.array(raw_ph_dur).astype("float32")
+            ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length
+            ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
+
+            ph_interval = ph_interval[:, not_sp_idx]
+            ph_seq = ph_seq
+            ph_time = np.unique(ph_interval.flatten())
+            if ph_time[-1] >= T:
+                ph_time = ph_time[:-1]
+
+            ph_edge = np.zeros([T], dtype="float32")
+            if len(ph_seq) > 0:
+                if ph_time[-1] + 0.5 > T:
+                    ph_time = ph_time[:-1]
+                if ph_time[0] - 0.5 < 0:
+                    ph_time = ph_time[1:]
+                ph_time_int = np.round(ph_time).astype("int32")
+                ph_time_fractional = ph_time - ph_time_int
+
+                ph_edge[ph_time_int] = 0.5 + ph_time_fractional
+                ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
+                ph_edge = ph_edge * 0.8 + 0.1
+
+            # ph_frame: [T]
+            ph_frame = np.zeros(T, dtype="int32")
+            if len(ph_seq) > 0:
+                for ph_id, st, ed in zip(
+                        ph_seq, ph_interval[0], ph_interval[1]
+                ):
+                    if st < 0:
+                        st = 0
+                    if ed > T:
+                        ed = T
+                    ph_frame[int(np.round(st)): int(np.round(ed))] = ph_id
+
+            # ph_mask: [vocab_size]
+            ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
+            if len(ph_seq) > 0:
+                ph_mask[ph_seq] = 1
+            ph_mask[0] = 1
+        else:
+            return None, None, None, None
+        return ph_seq, ph_edge, ph_frame, ph_mask
+
+    def make_input_feature(self, wav_path):
+        waveform = load_wav(wav_path, self.device, self.sample_rate)  # (L,)
+
+        wav_length = len(waveform) / self.sample_rate  # seconds
+        if wav_length > self.max_length:
+            print(
+                f"Item {wav_path} has a length of {wav_length}s, which is too long, skip it."
+            )
+            return None, None, None
+
+        # units encode
+        units = self.unitsEncoder.encode(waveform.unsqueeze(0), self.sample_rate, self.hop_size)  # [B, C, T]
+        melspec = self.get_melspec(waveform)  # [B, C, T]
+
+        B, C, T = units.shape
+        if C != self.hubert_channel:
+            raise f"Item {wav_path} has unexpect channel of {C}, which should be {self.hubert_channel}."
+
+        return units, melspec, wav_length
+
     def binarize(
             self,
             prefix: str,
@@ -187,138 +294,48 @@ class ForcedAlignmentBinarizer:
         idx = 0
         total_time = 0.0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
-            try:
-                # input_feature: [1, input_dim, T]
-                if not os.path.exists(item["wav_path"]):
-                    continue
-                waveform = load_wav(item.wav_path, self.device, self.sample_rate)  # (L,)
-
-                # units encode
-                units_t = self.unitsEncoder.encode(waveform.unsqueeze(0), self.sample_rate, self.hop_size)  # [B, T, C]
-
-                input_feature = units_t.transpose(1, 2).squeeze(0)  # [C, T]
-                melspec = self.get_melspec(waveform, 0)  # [C, T]
-
-                wav_length = len(waveform) / self.sample_rate  # seconds
-                T = input_feature.shape[-1]
-                if wav_length > self.max_length:
-                    print(
-                        f"Item {item.wav_path} has a length of {wav_length}s, which is too long, skip it."
-                    )
-                    continue
-                else:
-                    h5py_item_data = h5py_items.create_group(str(idx))
-                    items_meta_data["wav_lengths"].append(wav_length)
-                    idx += 1
-                    total_time += wav_length
-
-                input_feature = input_feature.unsqueeze(0)  # [B, C, T]
-                melspec = melspec.unsqueeze(0)  # [B, C, T]
-
-                h5py_item_data["input_feature"] = (
-                    input_feature.cpu().numpy().astype("float32")
-                )
-
-                h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
-
-                # label_type: []
-                label_type_id = label_type_to_id[item.label_type]
-                if label_type_id == 2:
-                    if len(item.ph_dur) != len(item.ph_seq):
-                        label_type_id = 1
-                    if len(item.ph_seq) == 0:
-                        label_type_id = 0
-                h5py_item_data["label_type"] = label_type_id
-                items_meta_data["label_types"].append(label_type_id)
-
-                if label_type_id == 0:
-                    # ph_seq: [S]
-                    ph_seq = np.array([]).astype("int32")
-
-                    # ph_edge: [T]
-                    ph_edge = np.zeros([T], dtype="float32")
-
-                    # ph_frame: [T]
-                    ph_frame = np.zeros(T, dtype="int32")
-
-                    # ph_mask: [vocab_size]
-                    ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
-                elif label_type_id == 1:
-                    # ph_seq: [S]
-                    ph_seq = np.array(item.ph_seq).astype("int32")
-                    ph_seq = ph_seq[ph_seq != 0]
-
-                    # ph_edge: [T]
-                    ph_edge = np.zeros([T], dtype="float32")
-
-                    # ph_frame: [T]
-                    ph_frame = np.zeros(T, dtype="int32")
-
-                    # ph_mask: [vocab_size]
-                    ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-                    ph_mask[ph_seq] = 1
-                    ph_mask[0] = 1
-                elif label_type_id == 2:
-                    # ph_seq: [S]
-                    ph_seq = np.array(item.ph_seq).astype("int32")
-                    not_sp_idx = ph_seq != 0
-                    ph_seq = ph_seq[not_sp_idx]
-
-                    # ph_edge: [T]
-                    ph_dur = np.array(item.ph_dur).astype("float32")
-                    ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length
-                    ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
-
-                    ph_interval = ph_interval[:, not_sp_idx]
-                    ph_seq = ph_seq
-                    ph_time = np.unique(ph_interval.flatten())
-                    if ph_time[-1] >= T:
-                        ph_time = ph_time[:-1]
-
-                    ph_edge = np.zeros([T], dtype="float32")
-                    if len(ph_seq) > 0:
-                        if ph_time[-1] + 0.5 > T:
-                            ph_time = ph_time[:-1]
-                        if ph_time[0] - 0.5 < 0:
-                            ph_time = ph_time[1:]
-                        ph_time_int = np.round(ph_time).astype("int32")
-                        ph_time_fractional = ph_time - ph_time_int
-
-                        ph_edge[ph_time_int] = 0.5 + ph_time_fractional
-                        ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
-                        ph_edge = ph_edge * 0.8 + 0.1
-
-                    # ph_frame: [T]
-                    ph_frame = np.zeros(T, dtype="int32")
-                    if len(ph_seq) > 0:
-                        for ph_id, st, ed in zip(
-                                ph_seq, ph_interval[0], ph_interval[1]
-                        ):
-                            if st < 0:
-                                st = 0
-                            if ed > T:
-                                ed = T
-                            ph_frame[int(np.round(st)): int(np.round(ed))] = ph_id
-
-                    # ph_mask: [vocab_size]
-                    ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-                    if len(ph_seq) > 0:
-                        ph_mask[ph_seq] = 1
-                    ph_mask[0] = 1
-                else:
-                    raise ValueError("Unknown label type.")
-
-                h5py_item_data["ph_seq"] = ph_seq.astype("int32")
-                h5py_item_data["ph_edge"] = ph_edge.astype("float32")
-                h5py_item_data["ph_frame"] = ph_frame.astype("int32")
-                h5py_item_data["ph_mask"] = ph_mask.astype("int32")
-            except Exception as e:
-                e.args += (item.wav_path,)
-                print(e)
+            # input_feature: [1, C, T]
+            if not os.path.exists(item["wav_path"]):
                 continue
+
+            units, melspec, wav_length = self.make_input_feature(item.wav_path)
+
+            if units is None:
+                continue
+
+            h5py_item_data = h5py_items.create_group(str(idx))
+            items_meta_data["wav_lengths"].append(wav_length)
+            idx += 1
+            total_time += wav_length
+
+            h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
+            h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
+
+            # label_type: []
+            label_type_id = label_type_to_id[item.label_type]
+            if label_type_id == 2:
+                if len(item.ph_dur) != len(item.ph_seq):
+                    label_type_id = 1
+                if len(item.ph_seq) == 0:
+                    label_type_id = 0
+            h5py_item_data["label_type"] = label_type_id
+            items_meta_data["label_types"].append(label_type_id)
+
+            ph_seq, ph_edge, ph_frame, ph_mask = self.make_ph_data(vocab, units.shape[-1], label_type_id, item.ph_seq,
+                                                                   item.ph_dur)
+
+            if ph_seq is None:
+                continue
+
+            h5py_item_data["ph_seq"] = ph_seq.astype("int32")
+            h5py_item_data["ph_edge"] = ph_edge.astype("float32")
+            h5py_item_data["ph_frame"] = ph_frame.astype("int32")
+            h5py_item_data["ph_mask"] = ph_mask.astype("int32")
+
         for k, v in items_meta_data.items():
             h5py_meta_data[k] = np.array(v)
         h5py_file.close()
+
         full_label_ratio = items_meta_data["label_types"].count(2) / len(
             items_meta_data["label_types"]
         )
@@ -336,6 +353,70 @@ class ForcedAlignmentBinarizer:
         )
         print(
             f"Successfully binarized {prefix} set, "
+            f"total time {total_time:.2f}s ({(total_time / 3600):.2f}h), saved to {h5py_file_path}"
+        )
+
+    def binarize_evaluate(self,
+                          vocab: dict,
+                          binary_data_folder: str | pathlib.Path,
+                          ):
+        print(f"Binarizing evaluate set...")
+
+        grapheme_to_phoneme = networks.g2p.DictionaryG2P(**{"dictionary": self.evaluate_dictionary})
+        grapheme_to_phoneme.set_in_format('lab')
+
+        h5py_file_path = pathlib.Path(binary_data_folder) / "evaluate.h5py"
+        h5py_file = h5py.File(h5py_file_path, "w")
+        h5py_items = h5py_file.create_group("items")
+
+        evaluate_folder = self.data_folder / "evaluate"
+        spk_folders = [i for i in evaluate_folder.glob("*") if i.is_dir()]
+
+        data_paths = []
+        wav_paths = []
+        for spk_folder in spk_folders:
+            if not os.path.exists(spk_folder / "wavs") and os.path.exists(spk_folder / "TextGrid"):
+                print(f"Skipping {spk_folder}, wav or TextGrid folder not found.")
+                continue
+            else:
+                _wav_paths = glob.glob(str(spk_folder / "wavs" / "*.wav"))
+                for wav_path in _wav_paths:
+                    wav_name = pathlib.Path(pathlib.Path(wav_path).name)
+                    lab_path = spk_folder / "wavs" / wav_name.with_suffix(".lab")
+                    tg_path = spk_folder / "TextGrid" / wav_name.with_suffix(".TextGrid")
+                    if os.path.exists(lab_path) and os.path.exists(tg_path):
+                        abs_path = os.path.abspath(wav_path)
+                        data_paths.append((abs_path, lab_path, tg_path))
+                        wav_paths.append(abs_path)
+
+        idx = 0
+        total_time = 0.0
+        for wav_path, lab_path, tg_path in tqdm(data_paths):
+            with open(lab_path, "r", encoding="utf-8", ) as f:
+                lab_text = f.read().strip()
+            ph_seq, word_seq, ph_idx_to_word_idx = grapheme_to_phoneme(lab_text)
+
+            units, melspec, wav_length = self.make_input_feature(wav_path)
+
+            if units is None:
+                continue
+            h5py_item_data = h5py_items.create_group(str(idx))
+            idx += 1
+            total_time += wav_length
+
+            h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
+            h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
+            h5py_item_data["wav_length"] = wav_length
+            h5py_item_data.create_dataset('ph_seq', data=ph_seq, dtype=h5py.string_dtype(encoding="utf-8"))
+            h5py_item_data.create_dataset('word_seq', data=word_seq, dtype=h5py.string_dtype(encoding="utf-8"))
+            h5py_item_data["ph_idx_to_word_idx"] = ph_idx_to_word_idx
+            h5py_item_data.create_dataset("wav_path", data=str(wav_path), dtype=h5py.string_dtype(encoding="utf-8"))
+            h5py_item_data.create_dataset("tg_path", data=str(tg_path), dtype=h5py.string_dtype(encoding="utf-8"))
+
+        h5py_file.close()
+
+        print(
+            f"Successfully binarized evaluate set, "
             f"total time {total_time:.2f}s ({(total_time / 3600):.2f}h), saved to {h5py_file_path}"
         )
 

@@ -110,10 +110,7 @@ def main(config_path: str, pretrained_model_path, resume):
         save_every_steps=config["save_every_steps"],
     )
 
-    evaluate_folder = pathlib.Path(config["evaluate_folder"])
-
-    vlabeler_callback = VlabelerEvaluateCallback(evaluate_folder=evaluate_folder,
-                                                 dictionary=config["evaluate_dictionary"],
+    vlabeler_callback = VlabelerEvaluateCallback(binary_data_folder=config["binary_folder"],
                                                  out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]))
 
     stepProgressBar = StepProgressBar()

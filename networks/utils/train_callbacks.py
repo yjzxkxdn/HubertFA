@@ -1,7 +1,10 @@
 import os
+
+import h5py
+import numpy as np
+import torch
 import tqdm
 import pathlib
-import networks.g2p
 
 from lightning.pytorch.callbacks import Callback, TQDMProgressBar
 
@@ -12,9 +15,6 @@ from typing import Dict
 from networks.utils import label
 from networks.utils.metrics import Metric, VlabelerEditRatio, BoundaryEditRatio, BoundaryEditRatioWeighted
 from evaluate import remove_ignored_phonemes
-
-from networks.utils.get_melspec import MelSpecExtractor
-from networks.utils.load_wav import load_wav
 
 
 class StepProgressBar(TQDMProgressBar):
@@ -56,45 +56,39 @@ class RecentCheckpointsCallback(Callback):
 
 
 class VlabelerEvaluateCallback(Callback):
-    def __init__(self, evaluate_folder, dictionary, out_tg_dir):
+    def __init__(self, binary_data_folder, out_tg_dir):
         super().__init__()
-        self.evaluate_folder = pathlib.Path(evaluate_folder)
+        self.binary_data_folder = pathlib.Path(binary_data_folder)
         self.out_tg_dir = pathlib.Path(out_tg_dir)
-        self.grapheme_to_phoneme = networks.g2p.DictionaryG2P(**{"dictionary": dictionary})
-        self.grapheme_to_phoneme.set_in_format('lab')
-        self.dataset = self.grapheme_to_phoneme.get_dataset(pathlib.Path(evaluate_folder).rglob("*.wav"))
-        self.get_melspec = None
+        self.dataset = []
+        self.load_h5py_file()
+
+    def load_h5py_file(self):
+        h5py_file_path = str(pathlib.Path(self.binary_data_folder) / "evaluate.h5py")
+        with h5py.File(h5py_file_path, "r") as h5py_file:
+            items_group = h5py_file["items"]
+            for item in items_group.values():
+                input_feature = np.array(item["input_feature"])
+                melspec = np.array(item["melspec"])
+                wav_length = np.array(item["wav_length"])
+                ph_seq = [ph.decode('utf-8') for ph in item["ph_seq"]]
+                word_seq = [word.decode('utf-8') for word in item["word_seq"]]
+                ph_idx_to_word_idx = np.array(item["ph_idx_to_word_idx"])
+                wav_path = item["wav_path"][()].decode('utf-8')
+                tg_path = item["tg_path"][()].decode('utf-8')
+                self.dataset.append(
+                    (input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, wav_path, tg_path))
 
     def on_validation_start(self, trainer, pl_module):
-        if self.get_melspec is None:
-            self.get_melspec = MelSpecExtractor(**trainer.model.melspec_config)
-
+        tg_paths = []
         predictions = []
         for batch in tqdm.tqdm(self.dataset, desc="evaluate_forward:"):
-            wav_path, ph_seq, word_seq, ph_idx_to_word_idx = batch
-            waveform = load_wav(
-                wav_path, trainer.model.device, trainer.model.melspec_config["sample_rate"]
-            )
-            wav_length = waveform.shape[0] / trainer.model.melspec_config["sample_rate"]
-            melspec = self.get_melspec(waveform).detach().unsqueeze(0)
+            input_feature, mel_spec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, wav_path, tg_path = batch
+            tg_paths.append(tg_path)
 
-            # load audio
-            units = trainer.model.unitsEncoder.encode(waveform.unsqueeze(0),
-                                                      trainer.model.melspec_config["sample_rate"],
-                                                      trainer.model.melspec_config["hop_length"])
-            input_feature = units.transpose(1, 2)
-
-            (
-                ph_seq,
-                ph_intervals,
-                word_seq,
-                word_intervals,
-                confidence,
-                _,
-                _,
-            ) = trainer.model._infer_once(
-                input_feature, melspec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx, False, False
-            )
+            ph_seq, ph_intervals, word_seq, word_intervals, confidence, _, _ = trainer.model.infer_once(
+                torch.from_numpy(input_feature).to('cuda'), mel_spec, wav_length, ph_seq, word_seq, ph_idx_to_word_idx,
+                False, False)
 
             predictions.append((wav_path, wav_length, confidence, ph_seq, ph_intervals, word_seq, word_intervals,))
 
@@ -115,7 +109,8 @@ class VlabelerEvaluateCallback(Callback):
         }
 
         for pred_file in tqdm.tqdm(iterable, desc="evaluate_compute:"):
-            target_file = list(self.evaluate_folder.rglob(pathlib.Path(pred_file).name))
+            pred_file_name = pathlib.Path(pred_file).name
+            target_file = [i for i in tg_paths if pred_file_name in pathlib.Path(i).parts]
             if not target_file:
                 continue
             target_file = target_file[0]
