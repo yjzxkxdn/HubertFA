@@ -21,14 +21,40 @@ from tools.load_wav import load_wav
 from tools.plot import plot_for_valid
 
 
-@numba.jit
-def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-                 prob3_pad_len):
-    for t in range(1, T):
-        # [t-1,s] -> [t,s]
-        prob1 = dp[t - 1, :] + prob_log[t, :] + not_edge_prob_log[t]
+@numba.jit(nopython=True)
+def _decode_core(
+        ph_seq_id: np.ndarray,  # 音素ID序列 (S,)
+        prob_log: np.ndarray,  # 目标音素对数概率 (T, S)
+        edge_prob_log: np.ndarray,  # 边界对数概率 (T,)
+        not_edge_prob_log: np.ndarray,  # 非边界对数概率 (T,)
+        T: int, S: int  # 时间步数，音素序列长度
+) -> tuple:
+    """
+    核心解码函数
+    返回:
+        dp: 动态规划表 (T, S)
+        backtrack_s: 回溯指针表 (T, S)
+    """
+    # 初始化动态规划表
+    dp = np.full((T, S), -np.inf, dtype=np.float32)
+    backtrack_s = np.full((T, S), -1, dtype=np.int32)
+    curr_ph_max_prob_log = np.full(S, -np.inf, dtype=np.float32)
 
-        prob2 = np.empty(S, dtype=np.float32)
+    # 初始状态设置
+    dp[0, 0] = prob_log[0, 0]
+    curr_ph_max_prob_log[0] = prob_log[0, 0]
+    if ph_seq_id[0] == 0 and S > 1:
+        dp[0, 1] = prob_log[0, 1]
+        curr_ph_max_prob_log[1] = prob_log[0, 1]
+
+    # 前向传播
+    prob3_pad_len = 2 if S >= 2 else 1
+    for t in range(1, T):
+        # 概率1：[t-1,s] -> [t,s]
+        prob1 = dp[t - 1] + prob_log[t] + not_edge_prob_log[t]
+
+        # 概率2：[t-1,s-1] -> [t,s]
+        prob2 = np.full(S, -np.inf, dtype=np.float32)
         prob2[0] = -np.inf
         for i in range(1, S):
             prob2[i] = (
@@ -38,14 +64,15 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
                     + curr_ph_max_prob_log[i - 1] * (T / S)
             )
 
-        # [t-1,s-2] -> [t,s]
-        prob3 = np.empty(S, dtype=np.float32)
-        for i in range(prob3_pad_len):
-            prob3[i] = -np.inf
-        for i in range(prob3_pad_len, S):
-            if i - prob3_pad_len + 1 < S - 1 and ph_seq_id[i - prob3_pad_len + 1] != 0:
-                prob3[i] = -np.inf
-            else:
+        # 概率3：[t-1,s-k] -> [t,s]
+        prob3 = np.full(S, -np.inf, dtype=np.float32)
+        for i in range(S):
+            if i < prob3_pad_len:
+                continue
+            valid = True
+            if (i - prob3_pad_len + 1 < S - 1) and (ph_seq_id[i - prob3_pad_len + 1] != 0):
+                valid = False
+            if valid:
                 prob3[i] = (
                         dp[t - 1, i - prob3_pad_len]
                         + prob_log[t, i - prob3_pad_len]
@@ -53,98 +80,116 @@ def forward_pass(T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_p
                         + curr_ph_max_prob_log[i - prob3_pad_len] * (T / S)
                 )
 
-        stacked_probs = np.empty((3, S), dtype=np.float32)
+        # 合并概率
         for i in range(S):
-            stacked_probs[0, i] = prob1[i]
-            stacked_probs[1, i] = prob2[i]
-            stacked_probs[2, i] = prob3[i]
-
-        for i in range(S):
+            max_val = -np.inf
             max_idx = 0
-            max_val = stacked_probs[0, i]
-            for j in range(1, 3):
-                if stacked_probs[j, i] > max_val:
-                    max_val = stacked_probs[j, i]
-                    max_idx = j
+
+            current_prob1 = prob1[i]
+            current_prob2 = prob2[i] if i < len(prob2) else -np.inf
+            current_prob3 = prob3[i] if i < len(prob3) else -np.inf
+
+            if current_prob1 > max_val:
+                max_val = current_prob1
+                max_idx = 0
+            if current_prob2 > max_val:
+                max_val = current_prob2
+                max_idx = 1
+            if current_prob3 > max_val:
+                max_val = current_prob3
+                max_idx = 2
+
             dp[t, i] = max_val
             backtrack_s[t, i] = max_idx
 
-        for i in range(S):
-            if backtrack_s[t, i] == 0:
+            # 更新当前音素最大概率
+            if max_idx == 0:
                 curr_ph_max_prob_log[i] = max(curr_ph_max_prob_log[i], prob_log[t, i])
-            elif backtrack_s[t, i] > 0:
+            elif max_idx > 0:
                 curr_ph_max_prob_log[i] = prob_log[t, i]
+            if ph_seq_id[i] == 0:  # SP音素特殊处理
+                curr_ph_max_prob_log[i] = 0.0
 
-        for i in range(S):
-            if ph_seq_id[i] == 0:
-                curr_ph_max_prob_log[i] = 0
-
-    return dp, backtrack_s, curr_ph_max_prob_log
+    return dp, backtrack_s
 
 
-def _decode(ph_seq_id, ph_prob_log, edge_prob):
-    # ph_seq_id: (S)
-    # ph_prob_log: (T, vocab_size)
-    # edge_prob: (T,2)
-    T = ph_prob_log.shape[0]
-    S = len(ph_seq_id)
-    # not_SP_num = (ph_seq_id > 0).sum()
-    prob_log = ph_prob_log[:, ph_seq_id]
-
-    edge_prob_log = np.log(edge_prob + 1e-6).astype("float32")
-    not_edge_prob_log = np.log(1 - edge_prob + 1e-6).astype("float32")
-
-    # init
-    curr_ph_max_prob_log = np.full(S, -np.inf)
-    dp = np.full((T, S), -np.inf, dtype="float32")  # (T, S)
-    backtrack_s = np.full_like(dp, -1, dtype="int32")
-
-    # 如果mode==forced，只能从SP开始或者从第一个音素开始
-    dp[0, 0] = prob_log[0, 0]
-    curr_ph_max_prob_log[0] = prob_log[0, 0]
-    if ph_seq_id[0] == 0 and prob_log.shape[-1] > 1:
-        dp[0, 1] = prob_log[0, 1]
-        curr_ph_max_prob_log[1] = prob_log[0, 1]
-
-    # forward
-    prob3_pad_len = 2 if S >= 2 else 1
-    dp, backtrack_s, curr_ph_max_prob_log = forward_pass(
-        T, S, prob_log, not_edge_prob_log, edge_prob_log, curr_ph_max_prob_log, dp, backtrack_s, ph_seq_id,
-        prob3_pad_len
-    )
-
-    # backward
-    ph_idx_seq = []
-    ph_time_int = []
-    frame_confidence = []
-
-    # 如果mode==forced，只能从最后一个音素或者SP结束
-    if S >= 2 and dp[-1, -2] > dp[-1, -1] and ph_seq_id[-1] == 0:
+@numba.jit(nopython=True)
+def _backward_trace(
+        dp: np.ndarray,  # 动态规划表 (T, S)
+        backtrack_s: np.ndarray,  # 回溯指针表 (T, S)
+        ph_seq_id: np.ndarray,  # 音素ID序列 (S,)
+        T: int, S: int  # 时间步数，音素序列长度
+) -> tuple:
+    """
+    反向追踪路径
+    返回:
+        ph_idx_seq: 音素索引序列
+        ph_time_int_pred: 音素边界时间点（整数帧）
+        frame_confidence: 帧级置信度
+    """
+    # 确定终点
+    s = S - 1
+    if S >= 2 and dp[T - 1, S - 2] > dp[T - 1, S - 1] and ph_seq_id[S - 1] == 0:
         s = S - 2
-    else:
-        s = S - 1
 
-    for t in np.arange(T - 1, -1, -1):
-        assert backtrack_s[t, s] >= 0 or t == 0
+    # 反向追踪
+    ph_idx_seq = []
+    ph_time_int_pred = []
+    frame_confidence = []
+    for t in range(T - 1, -1, -1):
         frame_confidence.append(dp[t, s])
         if backtrack_s[t, s] != 0:
             ph_idx_seq.append(s)
-            ph_time_int.append(t)
+            ph_time_int_pred.append(t)
             s -= backtrack_s[t, s]
-    ph_idx_seq.reverse()
-    ph_time_int.reverse()
-    frame_confidence.reverse()
-    frame_confidence = np.exp(
-        np.diff(
-            np.pad(frame_confidence, (1, 0), "constant", constant_values=0.0), 1
-        )
+
+    # 反转结果
+    return (
+        np.array(ph_idx_seq[::-1], dtype=np.int32),
+        np.array(ph_time_int_pred[::-1], dtype=np.int32),
+        np.exp(np.diff(np.concatenate((np.array([0.0]), dp[:, s]))))
     )
 
-    return (
-        np.array(ph_idx_seq),
-        np.array(ph_time_int),
-        np.array(frame_confidence),
+
+def _decode(
+        ph_seq_id: np.ndarray,  # 音素ID序列 (S,)
+        ph_prob_log: np.ndarray,  # 音素对数概率 (T, vocab_size)
+        edge_prob: np.ndarray,  # 边界概率 (T,)
+) -> tuple:
+    """
+    主解码函数
+    返回:
+        ph_idx_seq: 解码后的音素索引序列
+        ph_time_int_pred: 整数帧索引的边界点
+        frame_confidence: 每帧置信度
+    """
+    T, vocab_size = ph_prob_log.shape
+    S = len(ph_seq_id)
+    assert edge_prob.shape == (T,), "边缘概率维度不匹配"
+
+    # 准备概率数据
+    prob_log = ph_prob_log[:, ph_seq_id].astype(np.float32)
+    edge_prob = edge_prob.astype(np.float32)
+
+    # 概率转换
+    edge_prob_log = np.log(edge_prob + 1e-6)
+    not_edge_prob_log = np.log(1 - edge_prob + 1e-6)
+
+    # 执行核心解码
+    dp, backtrack_s = _decode_core(
+        ph_seq_id.astype(np.int32),
+        prob_log,
+        edge_prob_log,
+        not_edge_prob_log,
+        T, S
     )
+
+    # 反向追踪路径
+    ph_idx_seq, ph_time_int_pred, frame_confidence = _backward_trace(
+        dp, backtrack_s, ph_seq_id.astype(np.int32), T, S
+    )
+
+    return ph_idx_seq, ph_time_int_pred, frame_confidence
 
 
 class LitForcedAlignmentTask(pl.LightningModule):
@@ -346,15 +391,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # decode
         edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
         edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
-        (
-            ph_idx_seq,
-            ph_time_int_pred,
-            frame_confidence,
-        ) = _decode(
-            ph_seq_id,
-            ph_prob_log,
-            edge_prob,
-        )
+
+        ph_idx_seq, ph_time_int_pred, frame_confidence = _decode(ph_seq_id, ph_prob_log, edge_prob)
         total_confidence = np.exp(np.mean(np.log(frame_confidence + 1e-6)) / 3)
 
         # postprocess
