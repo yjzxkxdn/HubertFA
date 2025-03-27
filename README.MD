@@ -11,9 +11,13 @@ HubertFA是一个专为歌声设计的强制对齐器，同时也兼容非歌声
 
 # 使用方法
 
+## 可选模型
+
+1. [hubert-soft](https://github.com/bshall/hubert/releases/download/v0.2/hubert-soft-35d9f29f.pt)
+2. [cnhubert](https://huggingface.co/TencentGameMate/chinese-hubert-base)
+
 ## 环境配置
 
-0. 下载[hubert-soft-35d9f29f](https://github.com/bshall/hubert/releases/download/v0.2/hubert-soft-35d9f29f.pt), 放入dependencies/hubert/hubert-soft-35d9f29f.pt
 1. 使用`git clone`下载本仓库的代码
 2. 安装conda
 3. 创建conda环境，python版本的要求为`3.10`
@@ -22,8 +26,7 @@ HubertFA是一个专为歌声设计的强制对齐器，同时也兼容非歌声
     conda activate HFA
     ```
 4. 去[pytorch官网](https://pytorch.org/get-started/locally/)安装torch
-5. （可选，用于提高wav读取速度）去[pytorch官网](https://pytorch.org/get-started/locally/)安装torchaudio
-6. 安装其他python库
+5. 安装其他python库
     ```bash
     pip install -r requirements.txt
     ```
@@ -117,8 +120,7 @@ HubertFA是一个专为歌声设计的强制对齐器，同时也兼容非歌声
 
     `weak_label`中的`transcriptions.csv`无需拥有`ph_dur`这一个`column`；
 3. 按需修改`binarize_config.yaml`，然后执行`python binarize.py`；
-4. 在release中下载你需要的预训练模型，并按需修改`train_config.yaml`，然后执行`python train.py -p path_to_your_pretrained_model`；
-5. 训练可视化：`tensorboard --logdir=ckpt/`。
+4. 训练可视化：`tensorboard --logdir=ckpt/`。
 
 ## 评估（适用于模型开发者）
 
