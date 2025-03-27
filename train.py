@@ -1,17 +1,16 @@
 import os
-import yaml
-import click
 import pathlib
 
-import torch
+import click
 import lightning as pl
-
-from torch.utils.data import DataLoader
+import torch
+import yaml
 from lightning.pytorch.callbacks import ModelCheckpoint
+from torch.utils.data import DataLoader
 
-from networks.utils.train_callbacks import StepProgressBar, RecentCheckpointsCallback, VlabelerEvaluateCallback
 from networks.task.forced_alignment import LitForcedAlignmentTask
-from networks.utils.dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
+from tools.dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
+from tools.train_callbacks import StepProgressBar, RecentCheckpointsCallback, VlabelerEvaluateCallback
 
 
 @click.command()

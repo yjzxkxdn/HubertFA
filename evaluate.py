@@ -7,8 +7,8 @@ import click
 import tqdm
 from textgrid import PointTier
 
-from networks.utils import label
-from networks.utils.metrics import (
+from tools import label
+from tools.metrics import (
     BoundaryEditRatio,
     BoundaryEditRatioWeighted,
     IntersectionOverUnion,

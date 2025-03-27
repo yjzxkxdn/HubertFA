@@ -15,10 +15,10 @@ from networks.layer.block.resnet_block import ResidualBasicBlock
 from networks.layer.scaling.stride_conv import DownSampling, UpSampling
 from networks.loss.BinaryEMDLoss import BinaryEMDLoss
 from networks.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
-from networks.utils.get_melspec import MelSpecExtractor
-from networks.utils.load_wav import load_wav
-from networks.utils.plot import plot_for_valid
 from networks.vocoder.hubert import UnitsEncoder
+from tools.get_melspec import MelSpecExtractor
+from tools.load_wav import load_wav
+from tools.plot import plot_for_valid
 
 
 @numba.jit

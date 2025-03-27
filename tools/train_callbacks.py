@@ -9,10 +9,10 @@ import tqdm
 from lightning.pytorch.callbacks import Callback, TQDMProgressBar
 
 from evaluate import remove_ignored_phonemes
-from networks.utils import label
-from networks.utils.export_tool import Exporter
-from networks.utils.metrics import Metric, VlabelerEditRatio, BoundaryEditRatio, BoundaryEditRatioWeighted
-from networks.utils.post_processing import post_processing
+from tools import label
+from tools.export_tool import Exporter
+from tools.metrics import Metric, VlabelerEditRatio, BoundaryEditRatio, BoundaryEditRatioWeighted
+from tools.post_processing import post_processing
 
 
 class StepProgressBar(TQDMProgressBar):

@@ -12,9 +12,9 @@ import yaml
 from tqdm import tqdm
 
 import networks.g2p.dictionary_g2p
-from networks.utils.get_melspec import MelSpecExtractor
-from networks.utils.load_wav import load_wav
 from networks.vocoder.hubert import UnitsEncoder
+from tools.get_melspec import MelSpecExtractor
+from tools.load_wav import load_wav
 
 
 class ForcedAlignmentBinarizer:

@@ -5,8 +5,8 @@ import lightning as pl
 import torch
 
 import networks.g2p
-from networks.utils.export_tool import Exporter
-from networks.utils.post_processing import post_processing
+from tools.export_tool import Exporter
+from tools.post_processing import post_processing
 from train import LitForcedAlignmentTask
 
 
