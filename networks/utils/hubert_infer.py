@@ -4,7 +4,6 @@ from pathlib import Path
 
 import numpy as np
 import torch
-
 from networks.hubert.hubert_model import hubert_soft, get_units
 from networks.hubert.vec_model import load_model, get_vec_units
 

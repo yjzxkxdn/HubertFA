@@ -1,6 +1,6 @@
 import torch
-import torchaudio
 import torch.nn.functional as F
+import torchaudio
 
 melspec_transform = None
 

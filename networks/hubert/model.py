@@ -1,12 +1,11 @@
 import copy
-from typing import Optional, Tuple
 import random
-
-from sklearn.cluster import KMeans
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from sklearn.cluster import KMeans
 from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 
 URLS = {

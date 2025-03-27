@@ -1,15 +1,13 @@
 import torch
 import torch.nn.functional as F
 from fairseq import checkpoint_utils
-
+from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torchaudio.transforms import Resample
 from transformers import Wav2Vec2FeatureExtractor, HubertModel
-
-from networks.hubert.model import HubertSoft
-from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
-
 from whisper.audio import log_mel_spectrogram, pad_or_trim
 from whisper.model import ModelDimensions, Whisper
+
+from networks.hubert.model import HubertSoft
 
 
 class Audio2HubertSoft(torch.nn.Module):

@@ -1,8 +1,8 @@
 from typing import Any
 
 import lightning as pl
-import numpy as np
 import numba
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
@@ -15,7 +15,6 @@ from networks.layer.block.resnet_block import ResidualBasicBlock
 from networks.layer.scaling.stride_conv import DownSampling, UpSampling
 from networks.loss.BinaryEMDLoss import BinaryEMDLoss
 from networks.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
-from networks.loss.VowelBoundaryLoss import ContinuousVowelBoundaryLoss
 from networks.utils.get_melspec import MelSpecExtractor
 from networks.utils.load_wav import load_wav
 from networks.utils.plot import plot_for_valid

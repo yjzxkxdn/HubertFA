@@ -1,20 +1,18 @@
 import os
+import pathlib
+from typing import Dict
 
 import h5py
 import numpy as np
 import torch
 import tqdm
-import pathlib
-
 from lightning.pytorch.callbacks import Callback, TQDMProgressBar
 
-from networks.utils.export_tool import Exporter
-from networks.utils.post_processing import post_processing
-
-from typing import Dict
-from networks.utils import label
-from networks.utils.metrics import Metric, VlabelerEditRatio, BoundaryEditRatio, BoundaryEditRatioWeighted
 from evaluate import remove_ignored_phonemes
+from networks.utils import label
+from networks.utils.export_tool import Exporter
+from networks.utils.metrics import Metric, VlabelerEditRatio, BoundaryEditRatio, BoundaryEditRatioWeighted
+from networks.utils.post_processing import post_processing
 
 
 class StepProgressBar(TQDMProgressBar):
