@@ -7,6 +7,7 @@ import torch
 import lightning as pl
 
 from torch.utils.data import DataLoader
+from lightning.pytorch.callbacks import ModelCheckpoint
 
 from networks.utils.train_callbacks import StepProgressBar, RecentCheckpointsCallback, VlabelerEvaluateCallback
 from networks.task.forced_alignment import LitForcedAlignmentTask
@@ -113,11 +114,18 @@ def main(config_path: str, pretrained_model_path, resume):
 
     vlabeler_callback = VlabelerEvaluateCallback(evaluate_folder=evaluate_folder,
                                                  dictionary=config["evaluate_dictionary"],
-                                                 save_path=str(pathlib.Path("ckpt") / config["model_name"]),
-                                                 out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]),
-                                                 evaluate_every_steps=config["evaluate_every_steps"])
+                                                 out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]))
 
     stepProgressBar = StepProgressBar()
+
+    evaluate_checkpoint = ModelCheckpoint(
+        dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
+        monitor="evaluate/total",
+        mode="min",
+        save_top_k=3,
+        filename="best-step={step}-evaluate={evaluate/total:.5f}",
+        auto_insert_metric_name=False
+    )
 
     # trainer
     trainer = pl.Trainer(
@@ -131,7 +139,7 @@ def main(config_path: str, pretrained_model_path, resume):
         check_val_every_n_epoch=None,
         max_epochs=-1,
         max_steps=config["optimizer_config"]["total_steps"],
-        callbacks=[recent_checkpoints_callback, vlabeler_callback, stepProgressBar],
+        callbacks=[recent_checkpoints_callback, vlabeler_callback, stepProgressBar, evaluate_checkpoint],
     )
 
     ckpt_path = None

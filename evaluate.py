@@ -10,6 +10,7 @@ from textgrid import PointTier
 from networks.utils import label
 from networks.utils.metrics import (
     BoundaryEditRatio,
+    BoundaryEditRatioWeighted,
     IntersectionOverUnion,
     Metric,
     VlabelerEditRatio,
@@ -71,6 +72,7 @@ def main(pred: str, target: str, recursive: bool, strict: bool, ignore: str):
     ignored = ignore.split(",")
     metrics: Dict[str, Metric] = {
         "BoundaryEditRatio": BoundaryEditRatio(),
+        "BoundaryEditRatioWeighted": BoundaryEditRatioWeighted(),
         "VlabelerEditRatio10-20ms": VlabelerEditRatio(move_min=0.01, move_max=0.02),
         "VlabelerEditRatio20-50ms": VlabelerEditRatio(move_min=0.02, move_max=0.05),
         "VlabelerEditRatio50-100ms": VlabelerEditRatio(move_min=0.05, move_max=0.1),

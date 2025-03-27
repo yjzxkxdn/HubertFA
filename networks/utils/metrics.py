@@ -199,13 +199,16 @@ class BoundaryEditDistance(Metric):
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
         # 确保音素完全一致
-        assert len(pred) == len(target)
+        if len(pred) != len(target):
+            return False
         for i in range(len(pred)):
-            assert pred[i].mark == target[i].mark
+            if pred[i].mark != target[i].mark:
+                return False
 
         # 计算边界距离
         for pred_point, target_point in zip(pred, target):
             self.distance += abs(pred_point.time - target_point.time)
+        return True
 
     def compute(self):
         return round(self.distance, 6)
@@ -222,12 +225,41 @@ class BoundaryEditRatio(Metric):
     def __init__(self):
         self.distance_metric = BoundaryEditDistance()
         self.duration = 0.0
+        self.counts = 0
+        self.error = 0
 
     def update(self, pred: tg.PointTier, target: tg.PointTier):
-        self.distance_metric.update(pred, target)
-        self.duration += target[-1].time - target[0].time
+        self.counts += 1
+        if self.distance_metric.update(pred, target):
+            self.duration += target[-1].time - target[0].time
+        else:
+            self.error += 1
 
     def compute(self):
         if self.duration == 0.0:
-            return None
+            return 1.0
         return round(self.distance_metric.compute() / self.duration, 6)
+
+
+class BoundaryEditRatioWeighted(Metric):
+    """
+    The boundary edit distance divided by the total duration of target intervals.
+    """
+
+    def __init__(self):
+        self.distance_metric = BoundaryEditDistance()
+        self.duration = 0.0
+        self.counts = 0
+        self.error = 0
+
+    def update(self, pred: tg.PointTier, target: tg.PointTier):
+        self.counts += 1
+        if self.distance_metric.update(pred, target):
+            self.duration += target[-1].time - target[0].time
+        else:
+            self.error += 1
+
+    def compute(self):
+        if self.duration == 0.0:
+            return 1.0
+        return round((self.distance_metric.compute() / self.duration) + (self.error / self.counts) * 0.1, 6)
