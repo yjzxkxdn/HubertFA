@@ -4,7 +4,6 @@ import h5py
 import numpy as np
 import pandas as pd
 import torch
-from einops import rearrange
 
 
 class MixedDataset(torch.utils.data.Dataset):
@@ -210,10 +209,11 @@ class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
 
 
 def collate_fn(batch):
-    """_summary_
+    """Collate function for processing a batch of data samples.
 
     Args:
-        batch (tuple): input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type from MixedDataset
+        batch (list of tuples): Each tuple contains elements from MixedDataset:
+            input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type, melspec.
 
     Returns:
         input_feature: (B C T)
@@ -226,58 +226,76 @@ def collate_fn(batch):
         label_type: (B)
         melspec: (B T)
     """
-    input_feature_lengths = torch.tensor([i[0].shape[-1] for i in batch])
-    max_len = max(input_feature_lengths)
+    # Calculate maximum lengths for padding
+    input_feature_lengths = torch.tensor([item[0].shape[-1] for item in batch])
+    max_len = input_feature_lengths.max().item()
     ph_seq_lengths = torch.tensor([len(item[1]) for item in batch])
-    max_ph_seq_len = max(ph_seq_lengths)
+    max_ph_seq_len = ph_seq_lengths.max().item()
 
-    # padding
-    for i, item in enumerate(batch):
-        item = list(item)
-        for param in [0, 2, 3, 6]:
-            item[param] = torch.nn.functional.pad(
-                torch.tensor(item[param]),
-                (0, max_len - item[param].shape[-1]),
-                "constant",
-                0,
-            )
-        item[1] = torch.nn.functional.pad(
-            torch.tensor(item[1]),
-            (0, max_ph_seq_len - item[1].shape[-1]),
-            "constant",
-            0,
+    padded_batch = []
+    for item in batch:
+        # Pad each element in the sample
+        input_feature = torch.nn.functional.pad(
+            torch.as_tensor(item[0]),
+            (0, max_len - item[0].shape[-1]),
+            mode='constant',
+            value=0
         )
-        item[4] = torch.from_numpy(item[4])
-        batch[i] = tuple(item)
+        melspec = torch.nn.functional.pad(
+            torch.as_tensor(item[6]),
+            (0, max_len - item[6].shape[-1]),
+            mode='constant',
+            value=0
+        )
 
-    input_feature = torch.stack([item[0] for item in batch], dim=1)
-    input_feature = rearrange(input_feature, "n b c t -> (n b) c t")
-    ph_seq = torch.stack([item[1] for item in batch])
-    ph_edge = torch.stack([item[2] for item in batch])
-    ph_frame = torch.stack([item[3] for item in batch])
-    ph_mask = torch.stack([item[4] for item in batch])
+        ph_seq = torch.nn.functional.pad(
+            torch.as_tensor(item[1]),
+            (0, max_ph_seq_len - len(item[1])),
+            mode='constant',
+            value=0
+        )
+        ph_edge = torch.nn.functional.pad(
+            torch.as_tensor(item[2]),
+            (0, max_len - len(item[2])),
+            mode='constant',
+            value=0
+        )
+        ph_frame = torch.nn.functional.pad(
+            torch.as_tensor(item[3]),
+            (0, max_len - len(item[3])),
+            mode='constant',
+            value=0
+        )
+        ph_mask = torch.as_tensor(item[4])
+        label_type = item[5]
 
-    label_type = torch.tensor(np.array([item[5] for item in batch]))
+        padded_batch.append((
+            input_feature,
+            ph_seq,
+            ph_edge,
+            ph_frame,
+            ph_mask,
+            label_type,
+            melspec
+        ))
 
-    melspec = torch.stack([item[6] for item in batch], dim=1)
-    melspec = rearrange(melspec, "n b c t -> (n b) c t")
+    # Concatenate/stack tensors efficiently
+    input_features = torch.cat([x[0] for x in padded_batch], dim=0)  # (B, C, T)
+    ph_seqs = torch.stack([x[1] for x in padded_batch])  # (B, S_ph)
+    ph_edges = torch.stack([x[2] for x in padded_batch])  # (B, T)
+    ph_frames = torch.stack([x[3] for x in padded_batch])  # (B, T)
+    ph_masks = torch.stack([x[4] for x in padded_batch])  # (B, ...)
+    label_types = torch.tensor(np.array([x[5] for x in padded_batch]))  # (B,)
+    melspecs = torch.cat([x[6] for x in padded_batch], dim=0)  # (B, C_mel, T)
 
     return (
-        input_feature,
+        input_features,
         input_feature_lengths,
-        ph_seq,
+        ph_seqs,
         ph_seq_lengths,
-        ph_edge,
-        ph_frame,
-        ph_mask,
-        label_type,
-        melspec
+        ph_edges,
+        ph_frames,
+        ph_masks,
+        label_types,
+        melspecs
     )
-
-
-if __name__ == "__main__":
-    dataset = MixedDataset(2)
-    print(dataset[0])
-    # sampler = WeightedBinningAudioBatchSampler(dataset.get_label_types(), dataset.get_wav_lengths(), [1, 0.3, 0.4])
-    # for i in tqdm(sampler):
-    #     print(len(i))
