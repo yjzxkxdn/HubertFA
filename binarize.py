@@ -294,43 +294,47 @@ class ForcedAlignmentBinarizer:
         idx = 0
         total_time = 0.0
         for _, item in tqdm(meta_data.iterrows(), total=meta_data.shape[0]):
-            # input_feature: [1, C, T]
-            if not os.path.exists(item["wav_path"]):
-                continue
+            try:
+                # input_feature: [1, C, T]
+                if not os.path.exists(item["wav_path"]):
+                    continue
 
-            units, melspec, wav_length = self.make_input_feature(item.wav_path)
+                units, melspec, wav_length = self.make_input_feature(item.wav_path)
 
-            if units is None:
-                continue
+                if units is None:
+                    continue
 
-            h5py_item_data = h5py_items.create_group(str(idx))
-            items_meta_data["wav_lengths"].append(wav_length)
-            idx += 1
-            total_time += wav_length
+                h5py_item_data = h5py_items.create_group(str(idx))
+                items_meta_data["wav_lengths"].append(wav_length)
+                idx += 1
+                total_time += wav_length
 
-            h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
-            h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
+                h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
+                h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
 
-            # label_type: []
-            label_type_id = label_type_to_id[item.label_type]
-            if label_type_id == 2:
-                if len(item.ph_dur) != len(item.ph_seq):
-                    label_type_id = 1
-                if len(item.ph_seq) == 0:
-                    label_type_id = 0
-            h5py_item_data["label_type"] = label_type_id
-            items_meta_data["label_types"].append(label_type_id)
+                # label_type: []
+                label_type_id = label_type_to_id[item.label_type]
+                if label_type_id == 2:
+                    if len(item.ph_dur) != len(item.ph_seq):
+                        label_type_id = 1
+                    if len(item.ph_seq) == 0:
+                        label_type_id = 0
+                h5py_item_data["label_type"] = label_type_id
+                items_meta_data["label_types"].append(label_type_id)
 
-            ph_seq, ph_edge, ph_frame, ph_mask = self.make_ph_data(vocab, units.shape[-1], label_type_id, item.ph_seq,
-                                                                   item.ph_dur)
+                ph_seq, ph_edge, ph_frame, ph_mask = self.make_ph_data(vocab, units.shape[-1], label_type_id,
+                                                                       item.ph_seq,
+                                                                       item.ph_dur)
 
-            if ph_seq is None:
-                continue
+                if ph_seq is None:
+                    continue
 
-            h5py_item_data["ph_seq"] = ph_seq.astype("int32")
-            h5py_item_data["ph_edge"] = ph_edge.astype("float32")
-            h5py_item_data["ph_frame"] = ph_frame.astype("int32")
-            h5py_item_data["ph_mask"] = ph_mask.astype("int32")
+                h5py_item_data["ph_seq"] = ph_seq.astype("int32")
+                h5py_item_data["ph_edge"] = ph_edge.astype("float32")
+                h5py_item_data["ph_frame"] = ph_frame.astype("int32")
+                h5py_item_data["ph_mask"] = ph_mask.astype("int32")
+            except Exception as e:
+                print(f"Failed to binarize: {item}: {e}")
 
         for k, v in items_meta_data.items():
             h5py_meta_data[k] = np.array(v)
@@ -392,27 +396,29 @@ class ForcedAlignmentBinarizer:
         idx = 0
         total_time = 0.0
         for wav_path, lab_path, tg_path in tqdm(data_paths):
-            with open(lab_path, "r", encoding="utf-8", ) as f:
-                lab_text = f.read().strip()
-            ph_seq, word_seq, ph_idx_to_word_idx = grapheme_to_phoneme(lab_text)
+            try:
+                with open(lab_path, "r", encoding="utf-8", ) as f:
+                    lab_text = f.read().strip()
+                ph_seq, word_seq, ph_idx_to_word_idx = grapheme_to_phoneme(lab_text)
 
-            units, melspec, wav_length = self.make_input_feature(wav_path)
+                units, melspec, wav_length = self.make_input_feature(wav_path)
 
-            if units is None:
-                continue
-            h5py_item_data = h5py_items.create_group(str(idx))
-            idx += 1
-            total_time += wav_length
+                if units is None:
+                    continue
+                h5py_item_data = h5py_items.create_group(str(idx))
+                idx += 1
+                total_time += wav_length
 
-            h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
-            h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
-            h5py_item_data["wav_length"] = wav_length
-            h5py_item_data.create_dataset('ph_seq', data=ph_seq, dtype=h5py.string_dtype(encoding="utf-8"))
-            h5py_item_data.create_dataset('word_seq', data=word_seq, dtype=h5py.string_dtype(encoding="utf-8"))
-            h5py_item_data["ph_idx_to_word_idx"] = ph_idx_to_word_idx
-            h5py_item_data.create_dataset("wav_path", data=str(wav_path), dtype=h5py.string_dtype(encoding="utf-8"))
-            h5py_item_data.create_dataset("tg_path", data=str(tg_path), dtype=h5py.string_dtype(encoding="utf-8"))
-
+                h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
+                h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
+                h5py_item_data["wav_length"] = wav_length
+                h5py_item_data.create_dataset('ph_seq', data=ph_seq, dtype=h5py.string_dtype(encoding="utf-8"))
+                h5py_item_data.create_dataset('word_seq', data=word_seq, dtype=h5py.string_dtype(encoding="utf-8"))
+                h5py_item_data["ph_idx_to_word_idx"] = ph_idx_to_word_idx
+                h5py_item_data.create_dataset("wav_path", data=str(wav_path), dtype=h5py.string_dtype(encoding="utf-8"))
+                h5py_item_data.create_dataset("tg_path", data=str(tg_path), dtype=h5py.string_dtype(encoding="utf-8"))
+            except Exception as e:
+                print(f"Failed to binarize {wav_path}: {e}")
         h5py_file.close()
 
         print(
