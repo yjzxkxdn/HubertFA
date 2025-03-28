@@ -311,9 +311,6 @@ class ForcedAlignmentBinarizer:
                     print(f"{wav_length} extract units failed, skip it.")
                     continue
 
-                idx += 1
-                total_time += wav_length
-
                 # label_type: []
                 label_type_id = label_type_to_id[item.label_type]
                 if label_type_id == 2:
@@ -323,16 +320,17 @@ class ForcedAlignmentBinarizer:
                         label_type_id = 0
 
                 ph_seq, ph_edge, ph_frame, ph_mask = self.make_ph_data(vocab, units.shape[-1], label_type_id,
-                                                                       item.ph_seq,
-                                                                       item.ph_dur)
+                                                                       item.ph_seq, item.ph_dur)
 
                 if ph_seq is None:
                     continue
 
+                h5py_item_data = h5py_items.create_group(str(idx))
+                idx += 1
+                total_time += wav_length
                 items_meta_data["wav_lengths"].append(wav_length)
                 items_meta_data["label_types"].append(label_type_id)
 
-                h5py_item_data = h5py_items.create_group(str(idx))
                 h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
                 h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
                 h5py_item_data["label_type"] = label_type_id
