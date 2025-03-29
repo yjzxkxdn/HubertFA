@@ -7,7 +7,7 @@ random_seed: 123456
 # dataloader
 binary_folder: data/binary_base
 
-dataloader_workers: 0
+dataloader_workers: 2
 dataloader_prefetch_factor: 2
 oversampling_weights: [ 1, 1, 1 ] # full_label, weak_label, no_label
 batch_max_length: 100 # unit: seconds

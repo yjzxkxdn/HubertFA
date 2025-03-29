@@ -10,6 +10,7 @@ import torch.optim.lr_scheduler as lr_scheduler_module
 import yaml
 
 import networks.scheduler as scheduler_module
+from evaluate import remove_ignored_phonemes
 from networks.layer.backbone.unet import UNetBackbone
 from networks.layer.block.resnet_block import ResidualBasicBlock
 from networks.layer.scaling.stride_conv import DownSampling, UpSampling
@@ -644,11 +645,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_time
         ) = batch
 
-        pred_tier = []
-        target_tier = []
+        pred_tier = textgrid.PointTier(name="phones")
+        target_tier = textgrid.PointTier(name="phones")
 
         for mark, time in zip(ph_seq[0].cpu().numpy(), ph_time[0].cpu().numpy()):
-            target_tier.append(textgrid.Point(float(time), mark))
+            target_tier.addPoint(textgrid.Point(float(time), mark))
 
         ph_seq_g2p = ["SP"]
         for ph in ph_seq.squeeze(0).cpu().numpy():
@@ -670,7 +671,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
         for mark, time in zip(ph_seq_pred, ph_intervals_pred):
-            pred_tier.append(textgrid.Point(float(time[0]), mark))
+            pred_tier.addPoint(textgrid.Point(float(time[0]), mark))
 
         self.logger.experiment.add_text(
             f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
@@ -705,8 +706,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         losses = torch.stack(losses)
 
         self.validation_step_outputs["losses"].append(losses)
-
-        if target_tier:
+        if len(ph_seq):
             self.validation_step_outputs["tiers"].append((pred_tier, target_tier))
 
     def on_validation_epoch_end(self):
@@ -729,6 +729,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         if tiers:
             for pred_tier, target_tier in tiers:
                 for metric in metrics.values():
+                    pred_tier = remove_ignored_phonemes(["AP", "SP", "EP", "GS", ""], pred_tier)
+                    target_tier = remove_ignored_phonemes(["AP", "SP", "EP", "GS", ""], target_tier)
                     metric.update(pred_tier, target_tier)
 
         result = {key: metric.compute() for key, metric in metrics.items()}

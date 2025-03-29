@@ -116,10 +116,10 @@ def main(config_path: str, pretrained_model_path, resume):
 
     evaluate_checkpoint = ModelCheckpoint(
         dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
-        monitor="evaluate/total",
+        monitor="unseen_evaluate/total",
         mode="min",
         save_top_k=3,
-        filename="best-step={step}-evaluate={evaluate/total:.5f}",
+        filename="best-step={step}-evaluate={unseen_evaluate/total:.5f}",
         auto_insert_metric_name=False
     )
 
