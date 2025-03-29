@@ -2,24 +2,24 @@ MIN_SP_LENGTH = 0.1
 SP_MERGE_LENGTH = 0.3
 
 
-def add_SP(word_seq, word_intervals, wav_length):
+def add_SP(word_seq, word_intervals, wav_length, add_phone="SP"):
     word_seq_res = []
     word_intervals_res = []
     if len(word_seq) == 0:
-        word_seq_res.append("SP")
+        word_seq_res.append(add_phone)
         word_intervals_res.append([0, wav_length])
         return word_seq_res, word_intervals_res
 
-    word_seq_res.append("SP")
+    word_seq_res.append(add_phone)
     word_intervals_res.append([0, word_intervals[0, 0]])
     for word, (start, end) in zip(word_seq, word_intervals):
         if word_intervals_res[-1][1] < start:
-            word_seq_res.append("SP")
+            word_seq_res.append(add_phone)
             word_intervals_res.append([word_intervals_res[-1][1], start])
         word_seq_res.append(word)
         word_intervals_res.append([start, end])
     if word_intervals_res[-1][1] < wav_length:
-        word_seq_res.append("SP")
+        word_seq_res.append(add_phone)
         word_intervals_res.append([word_intervals_res[-1][1], wav_length])
     if word_intervals[0, 0] <= 0:
         word_seq_res = word_seq_res[1:]
@@ -65,7 +65,7 @@ def fill_small_gaps(word_seq, word_intervals, wav_length):
     return word_seq, word_intervals
 
 
-def post_processing(predictions):
+def post_processing(predictions, add_phone="SP"):
     print("Post-processing...")
 
     res = []
@@ -86,8 +86,8 @@ def post_processing(predictions):
             )
             ph_seq, ph_intervals = fill_small_gaps(ph_seq, ph_intervals, wav_length)
             # add SP
-            word_seq, word_intervals = add_SP(word_seq, word_intervals, wav_length)
-            ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length)
+            word_seq, word_intervals = add_SP(word_seq, word_intervals, wav_length, add_phone)
+            ph_seq, ph_intervals = add_SP(ph_seq, ph_intervals, wav_length, add_phone)
 
             res.append(
                 [

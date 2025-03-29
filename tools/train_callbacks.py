@@ -90,7 +90,7 @@ class VlabelerEvaluateCallback(Callback):
 
             predictions.append((wav_path, wav_length, confidence, ph_seq, ph_intervals, word_seq, word_intervals,))
 
-        predictions, log = post_processing(predictions)
+        predictions, log = post_processing(predictions, add_phone="")
         out_tg_dir = self.out_tg_dir / "evaluate" / str(trainer.global_step)
         exporter = Exporter(predictions, log, out_tg_dir)
         exporter.export(['textgrid'])
