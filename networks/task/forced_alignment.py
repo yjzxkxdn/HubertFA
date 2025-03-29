@@ -164,12 +164,12 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.vowel = yaml.safe_load(vowel_text)
 
         self.backbone = UNetBackbone(
-            hubert_config["channel"],
-            model_config["hidden_dims"],
-            model_config["hidden_dims"],
-            ResidualBasicBlock,
-            DownSampling,
-            UpSampling,
+            input_dims=hubert_config["channel"],
+            output_dims=model_config["hidden_dims"],
+            hidden_dims=model_config["hidden_dims"],
+            block=ResidualBasicBlock,
+            down_sampling=DownSampling,
+            up_sampling=UpSampling,
             down_sampling_factor=model_config["down_sampling_factor"],  # 3
             down_sampling_times=model_config["down_sampling_times"],  # 7
             channels_scaleup_factor=model_config["channels_scaleup_factor"],  # 1.5
@@ -276,7 +276,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         ph_seq_id = np.array([self.vocab[ph] for ph in ph_seq])
         ph_mask = np.zeros(self.vocab["<vocab_size>"])
         ph_mask[ph_seq_id] = 1
-        ph_mask[0] = 1
+        ph_mask[0] = 1  # ignored phonemes
         ph_mask = torch.from_numpy(ph_mask)
         if word_seq is None:
             word_seq = ph_seq
@@ -285,42 +285,39 @@ class LitForcedAlignmentTask(pl.LightningModule):
         # forward
         with torch.no_grad():
             (
-                ph_frame_logits,  # (B, T, vocab_size)
-                ph_edge_logits,  # (B, T)
-                ctc_logits,  # (B, T, vocab_size)
-            ) = self.forward(input_feature.transpose(1, 2))
+                ph_frame_logits,  # [B, T, vocab_size]
+                ph_edge_logits,  # [B, T]
+                ctc_logits,  # [B, T, vocab_size]
+            ) = self.forward(input_feature.transpose(1, 2))  # [B, T, C]
         if wav_length is not None:
             num_frames = int(
-                (wav_length * self.melspec_config["sample_rate"] + 0.5) / self.melspec_config["hop_length"]
-            )
+                (wav_length * self.melspec_config["sample_rate"] + 0.5) / self.melspec_config["hop_length"])
             ph_frame_logits = ph_frame_logits[:, :num_frames, :]
             ph_edge_logits = ph_edge_logits[:, :num_frames]
             ctc_logits = ctc_logits[:, :num_frames, :]
 
-        ph_mask = (
-                ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not()
-                * 1e9
-        )
+        # [1, 1, vocab_size] unused phonemes inf
+        ph_mask = ph_mask.to(ph_frame_logits.device).unsqueeze(0).unsqueeze(0).logical_not() * 1e9
+
+        # [T, vocab_size]
         ph_frame_pred = (
-            torch.nn.functional.softmax(
-                ph_frame_logits.float() - ph_mask.float(), dim=-1
-            )
-            .squeeze(0)
-            .cpu()
-            .numpy()
-            .astype("float32")
+            torch.nn.functional.softmax(ph_frame_logits.float() - ph_mask.float(), dim=-1).squeeze(0)
+            .cpu().numpy().astype("float32")
         )
+
+        # [T, vocab_size]
         ph_prob_log = (
-            torch.log_softmax(ph_frame_logits.float() - ph_mask.float(), dim=-1)
-            .squeeze(0)
-            .cpu()
-            .numpy()
-            .astype("float32")
+            torch.log_softmax(ph_frame_logits.float() - ph_mask.float(), dim=-1).squeeze(0)
+            .cpu().numpy().astype("float32")
         )
+
+        # [T]
         ph_edge_pred = (
-                (torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8
-        ).clamp(0.0, 1.0)
-        ph_edge_pred = ph_edge_pred.squeeze(0).cpu().numpy().astype("float32")
+            (((torch.nn.functional.sigmoid(ph_edge_logits.float()) - 0.1) / 0.8).clamp(0.0, 1.0)).squeeze(0)
+            .cpu().numpy().astype("float32")
+        )
+
+        # [1, T, vocab_size]
         ctc_logits = (
             ctc_logits.float().squeeze(0).cpu().numpy().astype("float32")
         )  # (ctc_logits.squeeze(0) - ph_mask)
@@ -328,10 +325,17 @@ class LitForcedAlignmentTask(pl.LightningModule):
         T, vocab_size = ph_frame_pred.shape
 
         # decode
-        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)
-        edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)
+        edge_diff = np.concatenate((np.diff(ph_edge_pred, axis=0), [0]), axis=0)  # [T]
+        edge_prob = (ph_edge_pred + np.concatenate(([0], ph_edge_pred[:-1]))).clip(0, 1)  # [T]
 
-        ph_idx_seq, ph_time_int_pred, frame_confidence = _decode(ph_seq_id, ph_prob_log, edge_prob)
+        (ph_idx_seq,
+         ph_time_int_pred,
+         frame_confidence,  # [T]
+         ) = _decode(
+            ph_seq_id,  # [ph_seq_len]
+            ph_prob_log,  # [T, vocab_size]
+            edge_prob,  # [T]
+        )
         total_confidence = np.exp(np.mean(np.log(frame_confidence + 1e-6)) / 3)
 
         # postprocess
@@ -553,12 +557,14 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         return losses
 
-    def forward(self, *args: Any, **kwargs: Any) -> Any:
-        h = self.backbone(*args, **kwargs)
-        logits = self.head(h)
-        ph_frame_logits = logits[:, :, 2:]
-        ph_edge_logits = logits[:, :, 0]
-        ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)
+    def forward(self,
+                x,  # [B, T, C]
+                ) -> Any:
+        h = self.backbone(x)
+        logits = self.head(h)  # [B, T, <vocab_size> + 2]
+        ph_frame_logits = logits[:, :, 2:]  # [B, T, <vocab_size>]
+        ph_edge_logits = logits[:, :, 0]  # [B, T]
+        ctc_logits = torch.cat([logits[:, :, [1]], logits[:, :, 3:]], dim=-1)  # [B, T, <vocab_size>]
         return ph_frame_logits, ph_edge_logits, ctc_logits
 
     def training_step(self, batch, batch_idx):

@@ -9,16 +9,15 @@ from networks.layer.scaling.stride_conv import DownSampling, UpSampling
 class UNetBackbone(nn.Module):
     def __init__(
             self,
-            input_dims,
-            output_dims,
-            hidden_dims,
+            input_dims: int,
+            output_dims: int,
+            hidden_dims: int,
             block,
             down_sampling,
             up_sampling,
-            down_sampling_factor=2,
-            down_sampling_times=5,
-            channels_scaleup_factor=2,
-            **kwargs
+            down_sampling_factor: int = 2,
+            down_sampling_times: int = 5,
+            channels_scaleup_factor: int = 2,
     ):
         """_summary_
 
@@ -42,7 +41,7 @@ class UNetBackbone(nn.Module):
         self.divisible_factor = down_sampling_factor ** down_sampling_times
 
         self.encoders = nn.ModuleList()
-        self.encoders.append(block(input_dims, hidden_dims, **kwargs))
+        self.encoders.append(block(input_dims, hidden_dims))
         for i in range(down_sampling_times - 1):
             i += 1
             self.encoders.append(
@@ -55,7 +54,6 @@ class UNetBackbone(nn.Module):
                     block(
                         int(channels_scaleup_factor ** i) * hidden_dims,
                         int(channels_scaleup_factor ** i) * hidden_dims,
-                        **kwargs
                     ),
                 )
             )
@@ -69,7 +67,6 @@ class UNetBackbone(nn.Module):
             block(
                 int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
                 int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
-                **kwargs
             ),
             up_sampling(
                 int(channels_scaleup_factor ** down_sampling_times) * hidden_dims,
@@ -88,7 +85,6 @@ class UNetBackbone(nn.Module):
                         * hidden_dims,
                         int(channels_scaleup_factor ** (down_sampling_times - i))
                         * hidden_dims,
-                        **kwargs
                     ),
                     up_sampling(
                         int(channels_scaleup_factor ** (down_sampling_times - i))
@@ -99,9 +95,11 @@ class UNetBackbone(nn.Module):
                     ),
                 )
             )
-        self.decoders.append(block(hidden_dims, output_dims, **kwargs))
+        self.decoders.append(block(hidden_dims, output_dims))
 
-    def forward(self, x):
+    def forward(self,
+                x,  # [B, T, C]
+                ):
         T = x.shape[1]
         padding_len = T % self.divisible_factor
         if padding_len != 0:
@@ -125,6 +123,6 @@ if __name__ == "__main__":
     # pass
     model = UNetBackbone(1, 2, 64, ResidualBasicBlock, DownSampling, UpSampling)
     print(model)
-    x = torch.randn(16, 320, 1)
-    out = model(x)
-    print(x.shape, out.shape)
+    input_feature = torch.randn(16, 320, 1)
+    output = model(input_feature)
+    print(input_feature.shape, output.shape)

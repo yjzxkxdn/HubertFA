@@ -85,10 +85,10 @@ class ForcedAlignmentBinarizer:
         phonemes = sorted(phonemes)
         phonemes = ["SP", *phonemes]
 
-        vocab = dict(zip(phonemes, range(len(phonemes))))
-        vocab.update(dict(zip(range(len(phonemes)), phonemes)))
-        vocab.update({i: 0 for i in ignored_phonemes})
-        vocab.update({"<vocab_size>": len(phonemes)})
+        vocab = dict(zip(phonemes, range(len(phonemes))))  # phoneme: phoneme_id
+        vocab.update(dict(zip(range(len(phonemes)), phonemes)))  # phoneme_id: phoneme
+        vocab.update({i: 0 for i in ignored_phonemes})  # ignored_phoneme: 0
+        vocab.update({"<vocab_size>": len(phonemes)})  # phonemes - ignored_phoneme + 1
 
         print(f"vocab_size is {len(phonemes)}")
 
@@ -152,28 +152,17 @@ class ForcedAlignmentBinarizer:
             meta_data_valid = (
                 meta_data_df[(meta_data_df["label_type"] != "no_label") & (meta_data_df["name"].isin(self.valid_sets))]
             )
-        meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(
-            drop=True
-        )
+
+        meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(drop=True)
         meta_data_valid = meta_data_valid.reset_index(drop=True)
 
         # binarize valid set
-        self.binarize(
-            "valid",
-            meta_data_valid,
-            vocab,
-            self.binary_folder
-        )
+        self.binarize("valid", meta_data_valid, vocab, self.binary_folder)
 
         # binarize train set
-        self.binarize(
-            "train",
-            meta_data_train,
-            vocab,
-            self.binary_folder
-        )
+        self.binarize("train", meta_data_train, vocab, self.binary_folder)
 
-        self.binarize_evaluate(vocab, self.binary_folder)
+        self.binarize_evaluate(self.binary_folder)
 
     def make_ph_data(self, vocab, T, label_type_id, raw_ph_seq, raw_ph_dur):
         if label_type_id == 0:
@@ -366,7 +355,6 @@ class ForcedAlignmentBinarizer:
         )
 
     def binarize_evaluate(self,
-                          vocab: dict,
                           binary_data_folder: str | pathlib.Path,
                           ):
         print(f"Binarizing evaluate set...")
