@@ -130,4 +130,4 @@ class VlabelerEvaluateCallback(Callback):
 
         if trainer.logger:
             for metric_name, metric_value in result.items():
-                trainer.model.log(f"evaluate/{metric_name}", metric_value)
+                trainer.model.log(f"unseen_evaluate/{metric_name}", metric_value)

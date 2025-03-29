@@ -175,6 +175,9 @@ class ForcedAlignmentBinarizer:
             # ph_frame: [T]
             ph_frame = np.zeros(T, dtype="int32")
 
+            # ph_time: [T]
+            ph_time = np.zeros(T, dtype="float32")
+
             # ph_mask: [vocab_size]
             ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
         elif label_type_id == 1:
@@ -191,6 +194,9 @@ class ForcedAlignmentBinarizer:
             # ph_frame: [T]
             ph_frame = np.zeros(T, dtype="int32")
 
+            # ph_time: [T]
+            ph_time = np.zeros(T, dtype="float32")
+
             # ph_mask: [vocab_size]
             ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
             ph_mask[ph_seq] = 1
@@ -203,26 +209,27 @@ class ForcedAlignmentBinarizer:
 
             # ph_edge: [T]
             ph_dur = np.array(raw_ph_dur).astype("float32")
-            ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum() / self.frame_length
-            ph_interval = np.stack((ph_time[:-1], ph_time[1:]))
+            ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum()
+            ph_frame = ph_time / self.frame_length
+            ph_interval = np.stack((ph_frame[:-1], ph_frame[1:]))
 
             ph_interval = ph_interval[:, not_sp_idx]
             ph_seq = ph_seq
-            ph_time = np.unique(ph_interval.flatten())
-            if ph_time[-1] >= T:
-                ph_time = ph_time[:-1]
+            ph_frame = np.unique(ph_interval.flatten())
+            if ph_frame[-1] >= T:
+                ph_frame = ph_frame[:-1]
 
             if len(ph_seq) <= 0:
                 return None, None, None, None
 
             ph_edge = np.zeros([T], dtype="float32")
             if len(ph_seq) > 0:
-                if ph_time[-1] + 0.5 > T:
-                    ph_time = ph_time[:-1]
-                if ph_time[0] - 0.5 < 0:
-                    ph_time = ph_time[1:]
-                ph_time_int = np.round(ph_time).astype("int32")
-                ph_time_fractional = ph_time - ph_time_int
+                if ph_frame[-1] + 0.5 > T:
+                    ph_frame = ph_frame[:-1]
+                if ph_frame[0] - 0.5 < 0:
+                    ph_frame = ph_frame[1:]
+                ph_time_int = np.round(ph_frame).astype("int32")
+                ph_time_fractional = ph_frame - ph_time_int
 
                 ph_edge[ph_time_int] = 0.5 + ph_time_fractional
                 ph_edge[ph_time_int - 1] = 0.5 - ph_time_fractional
@@ -246,8 +253,8 @@ class ForcedAlignmentBinarizer:
                 ph_mask[ph_seq] = 1
             ph_mask[0] = 1
         else:
-            return None, None, None, None
-        return ph_seq, ph_edge, ph_frame, ph_mask
+            return None, None, None, None, None
+        return ph_seq, ph_edge, ph_frame, ph_mask, ph_time
 
     def make_input_feature(self, wav_path):
         waveform = load_wav(wav_path, self.device, self.sample_rate)  # (L,)
@@ -308,8 +315,8 @@ class ForcedAlignmentBinarizer:
                     if len(item.ph_seq) == 0:
                         label_type_id = 0
 
-                ph_seq, ph_edge, ph_frame, ph_mask = self.make_ph_data(vocab, units.shape[-1], label_type_id,
-                                                                       item.ph_seq, item.ph_dur)
+                ph_seq, ph_edge, ph_frame, ph_mask, ph_time = self.make_ph_data(vocab, units.shape[-1], label_type_id,
+                                                                                item.ph_seq, item.ph_dur)
 
                 if ph_seq is None:
                     continue
@@ -327,6 +334,7 @@ class ForcedAlignmentBinarizer:
                 h5py_item_data["ph_edge"] = ph_edge.astype("float32")
                 h5py_item_data["ph_frame"] = ph_frame.astype("int32")
                 h5py_item_data["ph_mask"] = ph_mask.astype("int32")
+                h5py_item_data["ph_time"] = ph_time.astype("float32")
             except Exception as e:
                 print(f"Failed to binarize: {item}: {e}")
 

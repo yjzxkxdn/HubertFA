@@ -3,6 +3,7 @@ from typing import Any
 import lightning as pl
 import numba
 import numpy as np
+import textgrid
 import torch
 import torch.nn as nn
 import torch.optim.lr_scheduler as lr_scheduler_module
@@ -17,6 +18,7 @@ from networks.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 from tools.encoder import UnitsEncoder
 from tools.get_melspec import MelSpecExtractor
 from tools.load_wav import load_wav
+from tools.metrics import BoundaryEditRatio, BoundaryEditRatioWeighted, VlabelerEditRatio
 from tools.plot import plot_for_valid
 
 
@@ -235,7 +237,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.unitsEncoder = None
 
         # validation_step_outputs
-        self.validation_step_outputs = {"losses": []}
+        self.validation_step_outputs = {"losses": [], "tiers": []}
 
     def load_pretrained(self, pretrained_model):
         self.backbone = pretrained_model.backbone
@@ -578,7 +580,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ph_frame,  # (B, T)
                 ph_mask,  # (B vocab_size)
                 label_type,  # (B)
-                melspec
+                melspec,
+                ph_time
             ) = batch
 
             (
@@ -637,8 +640,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_frame,  # (B, T)
             ph_mask,  # (B vocab_size)
             label_type,  # (B)
-            melspec
+            melspec,
+            ph_time
         ) = batch
+
+        pred_tier = []
+        target_tier = []
+
+        for mark, time in zip(ph_seq[0].cpu().numpy(), ph_time[0].cpu().numpy()):
+            target_tier.append(textgrid.Point(float(time), mark))
 
         ph_seq_g2p = ["SP"]
         for ph in ph_seq.squeeze(0).cpu().numpy():
@@ -646,7 +656,9 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 continue
             ph_seq_g2p.append(self.vocab[ph])
             ph_seq_g2p.append("SP")
-        _, _, _, _, _, ctc, fig = self.infer_once(
+        (
+            ph_seq_pred, ph_intervals_pred, _, _, _, ctc, fig
+        ) = self.infer_once(
             input_feature,
             melspec,
             None,
@@ -656,6 +668,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
             True,
             True,
         )
+
+        for mark, time in zip(ph_seq_pred, ph_intervals_pred):
+            pred_tier.append(textgrid.Point(float(time[0]), mark))
+
         self.logger.experiment.add_text(
             f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
         )
@@ -690,12 +706,41 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         self.validation_step_outputs["losses"].append(losses)
 
+        if target_tier:
+            self.validation_step_outputs["tiers"].append((pred_tier, target_tier))
+
     def on_validation_epoch_end(self):
         losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
         losses = (losses / ((losses > 0).sum(dim=0, keepdim=True) + 1e-6)).sum(dim=0)
         self.log_dict(
             {f"valid/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
         )
+
+        metrics = {
+            "BoundaryEditRatio": BoundaryEditRatio(),
+            "BoundaryEditRatioWeighted": BoundaryEditRatioWeighted(),
+            "VlabelerEditRatio10-20ms": VlabelerEditRatio(move_min=0.01, move_max=0.02),
+            "VlabelerEditRatio20-50ms": VlabelerEditRatio(move_min=0.02, move_max=0.05),
+            "VlabelerEditRatio50-100ms": VlabelerEditRatio(move_min=0.05, move_max=0.1),
+            "VlabelerEditRatio100-5000ms": VlabelerEditRatio(move_min=0.1, move_max=5.0)
+        }
+
+        tiers = self.validation_step_outputs.get("tiers", [])
+        if tiers:
+            for pred_tier, target_tier in tiers:
+                for metric in metrics.values():
+                    metric.update(pred_tier, target_tier)
+
+        result = {key: metric.compute() for key, metric in metrics.items()}
+
+        vlabeler_loss = result["VlabelerEditRatio10-20ms"] * 0.1 + result["VlabelerEditRatio20-50ms"] * 0.2 + \
+                        result["VlabelerEditRatio50-100ms"] * 0.3 + result["VlabelerEditRatio100-5000ms"] * 0.4
+        result["vlabeler_loss"] = vlabeler_loss
+        result["total"] = vlabeler_loss * 0.5 + result["BoundaryEditRatioWeighted"] * 0.5
+
+        for metric_name, metric_value in result.items():
+            self.log_dict({f"vaild_evaluate/{metric_name}": metric_value})
+        self.validation_step_outputs["tiers"].clear()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(
