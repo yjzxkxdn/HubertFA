@@ -19,7 +19,7 @@ from networks.loss.GHMLoss import CTCGHMLoss, GHMLoss, MultiLabelGHMLoss
 from tools.encoder import UnitsEncoder
 from tools.get_melspec import MelSpecExtractor
 from tools.load_wav import load_wav
-from tools.metrics import BoundaryEditRatio, BoundaryEditRatioWeighted, VlabelerEditRatio
+from tools.metrics import BoundaryEditRatio, BoundaryEditRatioWeighted, VlabelerEditRatio, CustomPointTier
 from tools.plot import plot_for_valid
 
 
@@ -645,12 +645,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ph_time
         ) = batch
 
-        pred_tier = textgrid.PointTier(name="phones")
-        target_tier = textgrid.PointTier(name="phones")
-
-        for mark, time in zip(ph_seq[0].cpu().numpy(), ph_time[0].cpu().numpy()):
-            target_tier.addPoint(textgrid.Point(float(time), mark))
-
         ph_seq_g2p = ["SP"]
         for ph in ph_seq.squeeze(0).cpu().numpy():
             if ph == 0:
@@ -669,9 +663,6 @@ class LitForcedAlignmentTask(pl.LightningModule):
             True,
             True,
         )
-
-        for mark, time in zip(ph_seq_pred, ph_intervals_pred):
-            pred_tier.addPoint(textgrid.Point(float(time[0]), mark))
 
         self.logger.experiment.add_text(
             f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
@@ -706,7 +697,16 @@ class LitForcedAlignmentTask(pl.LightningModule):
         losses = torch.stack(losses)
 
         self.validation_step_outputs["losses"].append(losses)
-        if len(ph_seq):
+
+        if label_type.cpu().numpy()[0] == 2:
+            pred_tier = CustomPointTier(name="phones")
+            target_tier = CustomPointTier(name="phones")
+
+            for mark, time in zip(ph_seq[0].cpu().numpy(), ph_time[0].cpu().numpy()):
+                target_tier.addPoint(textgrid.Point(float(time), self.vocab[mark]))
+
+            for mark, time in zip(ph_seq_pred, ph_intervals_pred):
+                pred_tier.addPoint(textgrid.Point(float(time[0]), mark))
             self.validation_step_outputs["tiers"].append((pred_tier, target_tier))
 
     def on_validation_epoch_end(self):

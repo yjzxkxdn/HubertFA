@@ -1,4 +1,12 @@
+from bisect import bisect_left
+
 import textgrid as tg
+
+
+class CustomPointTier(tg.PointTier):
+    def addPoint(self, point):
+        i = bisect_left(self.points, point)
+        self.points.insert(i, point)
 
 
 class Metric:

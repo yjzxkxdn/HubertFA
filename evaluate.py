@@ -9,6 +9,7 @@ from textgrid import PointTier
 
 from tools import label
 from tools.metrics import (
+    CustomPointTier,
     BoundaryEditRatio,
     BoundaryEditRatioWeighted,
     IntersectionOverUnion,
@@ -18,7 +19,7 @@ from tools.metrics import (
 
 
 def remove_ignored_phonemes(ignored_phonemes_list: list[str], point_tier: PointTier):
-    res_tier = PointTier(name=point_tier.name)
+    res_tier = CustomPointTier(name=point_tier.name)
     if point_tier[0].mark not in ignored_phonemes_list:
         res_tier.addPoint(point_tier[0])
     for i in range(len(point_tier) - 1):
