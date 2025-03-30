@@ -165,6 +165,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         self.vocab = yaml.safe_load(vocab_text)
         self.vowel = yaml.safe_load(vowel_text)
+        self.ignored_phones = []
+
+        for k, v in self.vocab.items():
+            if v == 0:
+                self.ignored_phones.append(k)
 
         self.backbone = UNetBackbone(
             input_dims=hubert_config["channel"],
@@ -729,8 +734,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
         if tiers:
             for pred_tier, target_tier in tiers:
                 for metric in metrics.values():
-                    pred_tier = remove_ignored_phonemes(["AP", "SP", "EP", "GS", ""], pred_tier)
-                    target_tier = remove_ignored_phonemes(["AP", "SP", "EP", "GS", ""], target_tier)
+                    pred_tier = remove_ignored_phonemes(self.ignored_phones, pred_tier)
+                    target_tier = remove_ignored_phonemes(self.ignored_phones, target_tier)
                     metric.update(pred_tier, target_tier)
 
         result = {key: metric.compute() for key, metric in metrics.items()}

@@ -29,6 +29,8 @@ valid_sets:
   - 036_zuiqiannian_1
   - 036_zuiqiannian_2
   - 036_zuiqiannian_3
+# valid_sets: [] 时，按valid_set_size数量随机抽取
+valid_sets: []
 valid_set_preferred_folders:
   - test
 ignored_phonemes:

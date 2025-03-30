@@ -212,6 +212,8 @@ class ForcedAlignmentBinarizer:
             ph_time = np.array(np.concatenate(([0], ph_dur))).cumsum()
             ph_frame = ph_time / self.frame_length
             ph_interval = np.stack((ph_frame[:-1], ph_frame[1:]))
+            ph_time = ph_time[:-1]
+            ph_time = ph_time[not_sp_idx]
 
             ph_interval = ph_interval[:, not_sp_idx]
             ph_seq = ph_seq
