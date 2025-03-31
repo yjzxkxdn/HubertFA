@@ -66,14 +66,15 @@ class MixedDataset(torch.utils.data.Dataset):
         item = self.h5py_file["items"][str(index)]
         input_feature = np.array(item["input_feature"])  # [1,256,T]
         label_type = np.array(item["label_type"])
-        ph_seq = np.array(item["ph_seq"])
+        ph_seq = [ph.decode('utf-8') for ph in item["ph_seq"]]
+        ph_id_seq = np.array(item["ph_id_seq"])
         ph_edge = np.array(item["ph_edge"])
         ph_frame = np.array(item["ph_frame"])
         ph_mask = np.array(item["ph_mask"])
         melspec = np.array(item["melspec"])
         ph_time = np.array(item["ph_time"])
 
-        return input_feature, ph_seq, ph_edge, ph_frame, ph_mask, label_type, melspec, ph_time
+        return input_feature, ph_seq, ph_id_seq, ph_edge, ph_frame, ph_mask, label_type, melspec, ph_time
 
 
 class WeightedBinningAudioBatchSampler(torch.utils.data.Sampler):
@@ -243,42 +244,44 @@ def collate_fn(batch):
             value=0
         )
         melspec = torch.nn.functional.pad(
-            torch.as_tensor(item[6]),
-            (0, max_len - item[6].shape[-1]),
+            torch.as_tensor(item[7]),
+            (0, max_len - item[7].shape[-1]),
             mode='constant',
             value=0
         )
 
-        ph_seq = torch.nn.functional.pad(
-            torch.as_tensor(item[1]),
-            (0, max_ph_seq_len - len(item[1])),
+        ph_id_seq = torch.nn.functional.pad(
+            torch.as_tensor(item[2]),
+            (0, max_ph_seq_len - len(item[2])),
             mode='constant',
             value=0
         )
         ph_edge = torch.nn.functional.pad(
-            torch.as_tensor(item[2]),
-            (0, max_len - len(item[2])),
-            mode='constant',
-            value=0
-        )
-        ph_frame = torch.nn.functional.pad(
             torch.as_tensor(item[3]),
             (0, max_len - len(item[3])),
             mode='constant',
             value=0
         )
-        ph_time = torch.nn.functional.pad(
-            torch.as_tensor(item[7]),
-            (0, max_ph_seq_len - len(item[7])),
+        ph_frame = torch.nn.functional.pad(
+            torch.as_tensor(item[4]),
+            (0, max_len - len(item[4])),
             mode='constant',
             value=0
         )
-        ph_mask = torch.as_tensor(item[4])
-        label_type = item[5]
+        ph_time = torch.nn.functional.pad(
+            torch.as_tensor(item[8]),
+            (0, max_ph_seq_len - len(item[8])),
+            mode='constant',
+            value=0
+        )
+        ph_seq = item[1]
+        ph_mask = torch.as_tensor(item[5])
+        label_type = item[6]
 
         padded_batch.append((
             input_feature,
             ph_seq,
+            ph_id_seq,
             ph_edge,
             ph_frame,
             ph_mask,
@@ -289,18 +292,20 @@ def collate_fn(batch):
 
     # Concatenate/stack tensors efficiently
     input_features = torch.cat([x[0] for x in padded_batch], dim=0)  # (B, C, T)
-    ph_seqs = torch.stack([x[1] for x in padded_batch])  # (B, S_ph)
-    ph_edges = torch.stack([x[2] for x in padded_batch])  # (B, T)
-    ph_frames = torch.stack([x[3] for x in padded_batch])  # (B, T)
-    ph_masks = torch.stack([x[4] for x in padded_batch])  # (B, ...)
-    label_types = torch.tensor(np.array([x[5] for x in padded_batch]))  # (B,)
-    melspecs = torch.cat([x[6] for x in padded_batch], dim=0)  # (B, C_mel, T)
-    ph_times = torch.stack([x[7] for x in padded_batch])  # (B, S_ph)
+    ph_seqs = [x[1] for x in padded_batch]
+    ph_id_seqs = torch.stack([x[2] for x in padded_batch])  # (B, S_ph)
+    ph_edges = torch.stack([x[3] for x in padded_batch])  # (B, T)
+    ph_frames = torch.stack([x[4] for x in padded_batch])  # (B, T)
+    ph_masks = torch.stack([x[5] for x in padded_batch])  # (B, ...)
+    label_types = torch.tensor(np.array([x[6] for x in padded_batch]))  # (B,)
+    melspecs = torch.cat([x[7] for x in padded_batch], dim=0)  # (B, C_mel, T)
+    ph_times = torch.stack([x[8] for x in padded_batch])  # (B, S_ph)
 
     return (
         input_features,
         input_feature_lengths,
         ph_seqs,
+        ph_id_seqs,
         ph_seq_lengths,
         ph_edges,
         ph_frames,

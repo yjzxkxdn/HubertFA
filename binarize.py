@@ -18,53 +18,39 @@ from tools.load_wav import load_wav
 
 
 class ForcedAlignmentBinarizer:
-    def __init__(
-            self,
-            data_folder,
-            binary_folder,
-            evaluate_dictionary,
-            valid_set_size,
-            valid_sets,
-            valid_set_preferred_folders,
-            ignored_phonemes,
-            melspec_config,
-            max_length,
-            dictionary_paths,
-            vowel_phonemes,
-            hubert_config: dict = None,
-    ):
-        self.data_folder = pathlib.Path(data_folder)
-        self.binary_folder = pathlib.Path(binary_folder)
-        self.evaluate_dictionary = pathlib.Path(evaluate_dictionary)
+    def __init__(self, binary_config):
+        self.data_folder = pathlib.Path(binary_config['data_folder'])
+        self.binary_folder = pathlib.Path(binary_config['binary_folder'])
+        self.evaluate_dictionary = pathlib.Path(binary_config['evaluate_dictionary'])
 
-        self.valid_set_size = valid_set_size
-        self.valid_sets = valid_sets
-        self.valid_set_preferred_folders = valid_set_preferred_folders
+        self.valid_set_size = binary_config['valid_set_size']
+        self.valid_sets = binary_config['valid_sets']
+        self.valid_set_preferred_folders = binary_config['valid_set_preferred_folders']
 
-        self.ignored_phonemes = ignored_phonemes
-        self.melspec_config = melspec_config
+        self.ignored_phonemes = binary_config['ignored_phonemes']
+        self.melspec_config = binary_config['melspec_config']
 
-        self.dictionary_paths = dictionary_paths
-        self.vowel_phonemes = vowel_phonemes
+        self.dictionary_paths = binary_config['dictionary_paths']
+        self.vowel_phonemes = binary_config['vowel_phonemes']
 
-        self.max_length = max_length
+        self.max_length = binary_config['max_length']
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.sample_rate = self.melspec_config["sample_rate"]
         self.frame_length = self.melspec_config["hop_length"] / self.sample_rate
 
-        self.get_melspec = MelSpecExtractor(**melspec_config, device=self.device)
+        self.get_melspec = MelSpecExtractor(**binary_config['melspec_config'], device=self.device)
 
-        self.hop_size = melspec_config["hop_length"]
+        self.hop_size = binary_config['melspec_config']["hop_length"]
 
         self.unitsEncoder = UnitsEncoder(
-            hubert_config["encoder"],
-            hubert_config["model_path"],
-            hubert_config["sample_rate"],
-            hubert_config["hop_size"],
+            binary_config['hubert_config']["encoder"],
+            binary_config['hubert_config']["model_path"],
+            binary_config['hubert_config']["sample_rate"],
+            binary_config['hubert_config']["hop_size"],
             self.device)
 
-        self.hubert_channel = hubert_config["channel"]
+        self.hubert_channel = binary_config['hubert_config']["channel"]
 
     @staticmethod
     def get_vocab(data_folder_path, ignored_phonemes):
@@ -86,13 +72,16 @@ class ForcedAlignmentBinarizer:
         phonemes = ["SP", *phonemes]
 
         vocab = dict(zip(phonemes, range(len(phonemes))))  # phoneme: phoneme_id
-        vocab.update(dict(zip(range(len(phonemes)), phonemes)))  # phoneme_id: phoneme
         vocab.update({i: 0 for i in ignored_phonemes})  # ignored_phoneme: 0
-        vocab.update({"<vocab_size>": len(phonemes)})  # phonemes - ignored_phoneme + 1
+
+        vocab_dict = {"vocab": vocab,
+                      "vocab_size": len(phonemes),
+                      "ignored_phonemes": ["SP", *ignored_phonemes],
+                      }
 
         print(f"vocab_size is {len(phonemes)}")
 
-        return vocab
+        return vocab_dict
 
     @staticmethod
     def get_vowel(dictionary_paths, ignored_phonemes, vowel_phonemes, vocab):
@@ -120,8 +109,8 @@ class ForcedAlignmentBinarizer:
 
         vowel_dict = {}
         for v in vowels:
-            if v in vocab.keys():
-                vowel_dict[v] = vocab[v]
+            if v in vocab["vocab"].keys():
+                vowel_dict[v] = vocab["vocab"][v]
 
         print(f"vowels_size is {len(vowels)}")
 
@@ -164,10 +153,10 @@ class ForcedAlignmentBinarizer:
 
         self.binarize_evaluate(self.binary_folder)
 
-    def make_ph_data(self, vocab, T, label_type_id, raw_ph_seq, raw_ph_dur):
+    def make_ph_data(self, vocab, T, label_type_id, raw_ph_id_seq, raw_ph_dur):
         if label_type_id == 0:
             # ph_seq: [S]
-            ph_seq = np.array([]).astype("int32")
+            ph_id_seq = np.array([]).astype("int32")
 
             # ph_edge: [T]
             ph_edge = np.zeros([T], dtype="float32")
@@ -179,14 +168,14 @@ class ForcedAlignmentBinarizer:
             ph_time = np.zeros(T, dtype="float32")
 
             # ph_mask: [vocab_size]
-            ph_mask = np.ones(vocab["<vocab_size>"], dtype="int32")
+            ph_mask = np.ones(vocab["vocab_size"], dtype="int32")
         elif label_type_id == 1:
             # ph_seq: [S]
-            ph_seq = np.array(raw_ph_seq).astype("int32")
-            ph_seq = ph_seq[ph_seq != 0]
+            ph_id_seq = np.array(raw_ph_id_seq).astype("int32")
+            ph_id_seq = ph_id_seq[ph_id_seq != 0]
 
-            if len(ph_seq) <= 0:
-                return None, None, None, None
+            if len(ph_id_seq) <= 0:
+                return None, None, None, None, None
 
             # ph_edge: [T]
             ph_edge = np.zeros([T], dtype="float32")
@@ -198,14 +187,14 @@ class ForcedAlignmentBinarizer:
             ph_time = np.zeros(T, dtype="float32")
 
             # ph_mask: [vocab_size]
-            ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-            ph_mask[ph_seq] = 1
+            ph_mask = np.zeros(vocab["vocab_size"], dtype="int32")
+            ph_mask[ph_id_seq] = 1
             ph_mask[0] = 1
         elif label_type_id == 2:
             # ph_seq: [S]
-            ph_seq = np.array(raw_ph_seq).astype("int32")
-            not_sp_idx = ph_seq != 0
-            ph_seq = ph_seq[not_sp_idx]
+            ph_id_seq = np.array(raw_ph_id_seq).astype("int32")
+            not_sp_idx = ph_id_seq != 0
+            ph_id_seq = ph_id_seq[not_sp_idx]
 
             # ph_edge: [T]
             ph_dur = np.array(raw_ph_dur).astype("float32")
@@ -216,16 +205,16 @@ class ForcedAlignmentBinarizer:
             ph_time = ph_time[not_sp_idx]
 
             ph_interval = ph_interval[:, not_sp_idx]
-            ph_seq = ph_seq
+            ph_id_seq = ph_id_seq
             ph_frame = np.unique(ph_interval.flatten())
             if ph_frame[-1] >= T:
                 ph_frame = ph_frame[:-1]
 
-            if len(ph_seq) <= 0:
-                return None, None, None, None
+            if len(ph_id_seq) <= 0:
+                return None, None, None, None, None
 
             ph_edge = np.zeros([T], dtype="float32")
-            if len(ph_seq) > 0:
+            if len(ph_id_seq) > 0:
                 if ph_frame[-1] + 0.5 > T:
                     ph_frame = ph_frame[:-1]
                 if ph_frame[0] - 0.5 < 0:
@@ -239,9 +228,9 @@ class ForcedAlignmentBinarizer:
 
             # ph_frame: [T]
             ph_frame = np.zeros(T, dtype="int32")
-            if len(ph_seq) > 0:
+            if len(ph_id_seq) > 0:
                 for ph_id, st, ed in zip(
-                        ph_seq, ph_interval[0], ph_interval[1]
+                        ph_id_seq, ph_interval[0], ph_interval[1]
                 ):
                     if st < 0:
                         st = 0
@@ -250,13 +239,13 @@ class ForcedAlignmentBinarizer:
                     ph_frame[int(np.round(st)): int(np.round(ed))] = ph_id
 
             # ph_mask: [vocab_size]
-            ph_mask = np.zeros(vocab["<vocab_size>"], dtype="int32")
-            if len(ph_seq) > 0:
-                ph_mask[ph_seq] = 1
+            ph_mask = np.zeros(vocab["vocab_size"], dtype="int32")
+            if len(ph_id_seq) > 0:
+                ph_mask[ph_id_seq] = 1
             ph_mask[0] = 1
         else:
             return None, None, None, None, None
-        return ph_seq, ph_edge, ph_frame, ph_mask, ph_time
+        return ph_id_seq, ph_edge, ph_frame, ph_mask, ph_time
 
     def make_input_feature(self, wav_path):
         waveform = load_wav(wav_path, self.device, self.sample_rate)  # (L,)
@@ -312,16 +301,21 @@ class ForcedAlignmentBinarizer:
                 # label_type: []
                 label_type_id = label_type_to_id[item.label_type]
                 if label_type_id == 2:
-                    if len(item.ph_dur) != len(item.ph_seq):
+                    if len(item.ph_dur) != len(item.ph_id_seq):
                         label_type_id = 1
-                    if len(item.ph_seq) == 0:
+                    if len(item.ph_id_seq) == 0:
                         label_type_id = 0
 
-                ph_seq, ph_edge, ph_frame, ph_mask, ph_time = self.make_ph_data(vocab, units.shape[-1], label_type_id,
-                                                                                item.ph_seq, item.ph_dur)
+                ph_id_seq, ph_edge, ph_frame, ph_mask, ph_time = self.make_ph_data(vocab, units.shape[-1],
+                                                                                   label_type_id,
+                                                                                   item.ph_id_seq,
+                                                                                   item.ph_dur)
 
-                if ph_seq is None:
+                if ph_id_seq is None:
                     continue
+
+                ph_seq = [ph for ph in item.ph_seq if vocab["vocab"][ph] != 0]
+                assert len(ph_seq) == len(ph_id_seq), "len(ph_seq) != len(ph_id_seq)"
 
                 h5py_item_data = h5py_items.create_group(str(idx))
                 idx += 1
@@ -332,7 +326,8 @@ class ForcedAlignmentBinarizer:
                 h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
                 h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
                 h5py_item_data["label_type"] = label_type_id
-                h5py_item_data["ph_seq"] = ph_seq.astype("int32")
+                h5py_item_data.create_dataset('ph_seq', data=ph_seq, dtype=h5py.string_dtype(encoding="utf-8"))
+                h5py_item_data["ph_id_seq"] = ph_id_seq.astype("int32")
                 h5py_item_data["ph_edge"] = ph_edge.astype("float32")
                 h5py_item_data["ph_frame"] = ph_frame.astype("int32")
                 h5py_item_data["ph_mask"] = ph_mask.astype("int32")
@@ -458,8 +453,7 @@ class ForcedAlignmentBinarizer:
             )
             df["label_type"] = df["wav_path"].apply(
                 lambda path_: (
-                    "full_label" if "full_label" in path_
-                    else "weak_label" if "weak_label" in path_ else "no_label"
+                    "full_label" if "full_label" in path_ else ("weak_label" if "weak_label" in path_ else "no_label")
                 ),
             )
             if len(meta_data_df) >= 1:
@@ -476,7 +470,11 @@ class ForcedAlignmentBinarizer:
         meta_data_df.reset_index(drop=True, inplace=True)
 
         meta_data_df["ph_seq"] = meta_data_df["ph_seq"].apply(
-            lambda x: ([vocab[i] for i in x.split(" ")] if isinstance(x, str) else [])
+            lambda x: ([i for i in x.split(" ")] if isinstance(x, str) else [])
+        )
+
+        meta_data_df["ph_id_seq"] = meta_data_df["ph_seq"].apply(
+            lambda x: ([vocab['vocab'][i] for i in x])
         )
         if "ph_dur" in meta_data_df.columns:
             meta_data_df["ph_dur"] = meta_data_df["ph_dur"].apply(
@@ -511,7 +509,7 @@ def binarize(config_path: str):
     with open(pathlib.Path(config["binary_folder"]) / "global_config.yaml", "w", encoding="utf-8") as file:
         yaml.dump(global_config, file)
 
-    ForcedAlignmentBinarizer(**config).process()
+    ForcedAlignmentBinarizer(config).process()
 
 
 if __name__ == "__main__":

@@ -19,16 +19,6 @@ binary_folder: data/binary_base
 evaluate_dictionary: dictionary/opencpop-extension.txt
 
 valid_set_size: 15
-valid_sets:
-  - 000_buweixia_1
-  - 000_buweixia_2
-  - 000_buweixia_3
-  - 013_mingtianhuigenghao_1
-  - 013_mingtianhuigenghao_2
-  - 013_mingtianhuigenghao_3
-  - 036_zuiqiannian_1
-  - 036_zuiqiannian_2
-  - 036_zuiqiannian_3
 # valid_sets: [] 时，按valid_set_size数量随机抽取
 valid_sets: []
 valid_set_preferred_folders:

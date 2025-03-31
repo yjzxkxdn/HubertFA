@@ -165,11 +165,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         self.vocab = yaml.safe_load(vocab_text)
         self.vowel = yaml.safe_load(vowel_text)
-        self.ignored_phones = []
-
-        for k, v in self.vocab.items():
-            if v == 0:
-                self.ignored_phones.append(k)
+        self.ignored_phones = self.vocab["ignored_phonemes"]
 
         self.backbone = UNetBackbone(
             input_dims=hubert_config["channel"],
@@ -183,7 +179,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             channels_scaleup_factor=model_config["channels_scaleup_factor"],  # 1.5
         )
         self.head = nn.Linear(
-            model_config["hidden_dims"], self.vocab["<vocab_size>"] + 2
+            model_config["hidden_dims"], self.vocab["vocab_size"] + 2
         )
         self.melspec_config = melspec_config
         self.hubert_config = hubert_config
@@ -212,13 +208,13 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         # loss function
         self.ph_frame_GHM_loss_fn = GHMLoss(
-            self.vocab["<vocab_size>"],
+            self.vocab["vocab_size"],
             loss_config["function"]["num_bins"],
             loss_config["function"]["alpha"],
             loss_config["function"]["label_smoothing"],
         )
         self.pseudo_label_GHM_loss_fn = MultiLabelGHMLoss(
-            self.vocab["<vocab_size>"],
+            self.vocab["vocab_size"],
             loss_config["function"]["num_bins"],
             loss_config["function"]["alpha"],
             loss_config["function"]["label_smoothing"],
@@ -247,11 +243,11 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
     def load_pretrained(self, pretrained_model):
         self.backbone = pretrained_model.backbone
-        if self.vocab["<vocab_size>"] == pretrained_model.vocab["<vocab_size>"]:
+        if self.vocab["vocab_size"] == pretrained_model.vocab["vocab_size"]:
             self.head = pretrained_model.head
         else:
             self.head = nn.Linear(
-                self.backbone.output_dims, self.vocab["<vocab_size>"] + 2
+                self.backbone.output_dims, self.vocab["vocab_size"] + 2
             )
 
     def on_validation_start(self):
@@ -281,8 +277,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
             return_ctc=False,
             return_plot=False,
     ):
-        ph_seq_id = np.array([self.vocab[ph] for ph in ph_seq])
-        ph_mask = np.zeros(self.vocab["<vocab_size>"])
+        ph_seq_id = np.array([self.vocab["vocab"][ph] for ph in ph_seq])
+        ph_mask = np.zeros(self.vocab["vocab_size"])
         ph_mask[ph_seq_id] = 1
         ph_mask[0] = 1  # ignored phonemes
         ph_mask = torch.from_numpy(ph_mask)
@@ -391,7 +387,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ctc_index = np.concatenate([[0], ctc])
             ctc_index = (ctc_index[1:] != ctc_index[:-1]) * ctc != 0
             ctc = ctc[ctc_index]
-            ctc = np.array([self.vocab[ph] for ph in ctc if ph != 0])
+            ctc = np.array([ph_id for ph_id in ctc if ph_id != 0])
 
         fig = None
         ph_intervals_pred_int = (
@@ -581,6 +577,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 input_feature,  # (B, n_mels, T)
                 input_feature_lengths,  # (B)
                 ph_seq,  # (B S)
+                ph_id_seq,  # (B S)
                 ph_seq_lengths,  # (B)
                 ph_edge,  # (B, T)
                 ph_frame,  # (B, T)
@@ -602,7 +599,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
                 ctc_logits,
                 ph_frame,
                 ph_edge,
-                ph_seq,
+                ph_id_seq,
                 ph_seq_lengths,
                 ph_mask,
                 input_feature_lengths,
@@ -641,6 +638,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             input_feature,  # (B, n_mels, T)
             input_feature_lengths,  # (B)
             ph_seq,  # (B S)
+            ph_seq_id,  # (B S)
             ph_seq_lengths,  # (B)
             ph_edge,  # (B, T)
             ph_frame,  # (B, T)
@@ -649,12 +647,10 @@ class LitForcedAlignmentTask(pl.LightningModule):
             melspec,
             ph_time
         ) = batch
-
+        ph_seq_ignored = [ph for ph in ph_seq[0] if self.vocab["vocab"][ph] != 0]
         ph_seq_g2p = ["SP"]
-        for ph in ph_seq.squeeze(0).cpu().numpy():
-            if ph == 0:
-                continue
-            ph_seq_g2p.append(self.vocab[ph])
+        for ph in ph_seq_ignored:
+            ph_seq_g2p.append(ph)
             ph_seq_g2p.append("SP")
         (
             ph_seq_pred, ph_intervals_pred, _, _, _, ctc, fig
@@ -670,7 +666,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         )
 
         self.logger.experiment.add_text(
-            f"valid/ctc_predict_{batch_idx}", " ".join(ctc), self.global_step
+            f"valid/ctc_predict_{batch_idx}", " ".join([str(ph_id) for ph_id in ctc]), self.global_step
         )
         self.logger.experiment.add_figure(
             f"valid/plot_{batch_idx}", fig, self.global_step
@@ -688,7 +684,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
             ctc_logits,
             ph_frame,
             ph_edge,
-            ph_seq,
+            ph_seq_id,
             ph_seq_lengths,
             ph_mask,
             input_feature_lengths,
@@ -707,8 +703,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
             pred_tier = CustomPointTier(name="phones")
             target_tier = CustomPointTier(name="phones")
 
-            for mark, time in zip(ph_seq[0].cpu().numpy(), ph_time[0].cpu().numpy()):
-                target_tier.addPoint(textgrid.Point(float(time), self.vocab[mark]))
+            for mark, time in zip(ph_seq[0], ph_time[0].cpu().numpy()):
+                target_tier.addPoint(textgrid.Point(float(time), mark))
 
             for mark, time in zip(ph_seq_pred, ph_intervals_pred):
                 pred_tier.addPoint(textgrid.Point(float(time[0]), mark))
