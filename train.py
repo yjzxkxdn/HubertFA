@@ -1,5 +1,6 @@
 import os
 import pathlib
+import shutil
 
 import click
 import lightning as pl
@@ -58,6 +59,8 @@ def main(config_path: str, pretrained_model_path, resume):
         config_global = yaml.safe_load(f)
     config.update(config_global)
 
+    save_model_path = str(pathlib.Path("ckpt") / config["model_name"])
+
     torch.set_float32_matmul_precision(config["float32_matmul_precision"])
     pl.seed_everything(config["random_seed"], workers=True)
 
@@ -110,12 +113,12 @@ def main(config_path: str, pretrained_model_path, resume):
     )
 
     vlabeler_callback = VlabelerEvaluateCallback(binary_data_folder=config["binary_folder"],
-                                                 out_tg_dir=str(pathlib.Path("ckpt") / config["model_name"]))
+                                                 out_tg_dir=save_model_path)
 
     stepProgressBar = StepProgressBar()
 
     evaluate_checkpoint = ModelCheckpoint(
-        dirpath=str(pathlib.Path("ckpt") / config["model_name"]),
+        dirpath=save_model_path,
         monitor="unseen_evaluate/total",
         mode="min",
         save_top_k=3,
@@ -130,7 +133,7 @@ def main(config_path: str, pretrained_model_path, resume):
         precision=config["precision"],
         gradient_clip_val=config["gradient_clip_val"],
         gradient_clip_algorithm=config["gradient_clip_algorithm"],
-        default_root_dir=str(pathlib.Path("ckpt") / config["model_name"]),
+        default_root_dir=save_model_path,
         val_check_interval=config["val_check_interval"],
         check_val_every_n_epoch=None,
         max_epochs=-1,

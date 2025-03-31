@@ -32,6 +32,7 @@ class ForcedAlignmentBinarizer:
 
         self.dictionary_paths = binary_config['dictionary_paths']
         self.vowel_phonemes = binary_config['vowel_phonemes']
+        self.merged_phoneme_groups = binary_config['merged_phoneme_groups'] if binary_config['merged_phoneme'] else []
 
         self.max_length = binary_config['max_length']
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,7 +54,7 @@ class ForcedAlignmentBinarizer:
         self.hubert_channel = binary_config['hubert_config']["channel"]
 
     @staticmethod
-    def get_vocab(data_folder_path, ignored_phonemes):
+    def get_vocab(data_folder_path, ignored_phonemes, merged_phoneme_groups):
         print("Generating vocab...")
         phonemes = []
         trans_path_list = data_folder_path.rglob("transcriptions.csv")
@@ -71,12 +72,21 @@ class ForcedAlignmentBinarizer:
         phonemes = sorted(phonemes)
         phonemes = ["SP", *phonemes]
 
+        merged_phoneme_groups.insert(0, ["SP", *ignored_phonemes])
+
         vocab = dict(zip(phonemes, range(len(phonemes))))  # phoneme: phoneme_id
-        vocab.update({i: 0 for i in ignored_phonemes})  # ignored_phoneme: 0
+
+        for i, merged_phoneme_group in enumerate(merged_phoneme_groups):
+            vocab.update({ph: i for ph in merged_phoneme_group})
+
+        for ph in phonemes:
+            if ph not in vocab:
+                vocab[ph] = len(vocab)
 
         vocab_dict = {"vocab": vocab,
                       "vocab_size": len(phonemes),
                       "ignored_phonemes": ["SP", *ignored_phonemes],
+                      "merged_phoneme_groups": merged_phoneme_groups,
                       }
 
         print(f"vocab_size is {len(phonemes)}")
@@ -117,7 +127,7 @@ class ForcedAlignmentBinarizer:
         return vowel_dict
 
     def process(self):
-        vocab = self.get_vocab(self.data_folder, self.ignored_phonemes)
+        vocab = self.get_vocab(self.data_folder, self.ignored_phonemes, self.merged_phoneme_groups)
         with open(self.binary_folder / "vocab.yaml", "w", encoding="utf-8") as file:
             yaml.dump(vocab, file)
 

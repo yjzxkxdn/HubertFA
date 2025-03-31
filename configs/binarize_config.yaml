@@ -20,7 +20,7 @@ evaluate_dictionary: dictionary/opencpop-extension.txt
 
 valid_set_size: 15
 # valid_sets: [] 时，按valid_set_size数量随机抽取
-valid_sets: []
+valid_sets: [ ]
 valid_set_preferred_folders:
   - test
 ignored_phonemes:
@@ -54,3 +54,23 @@ melspec_config:
   fmin: 40
   fmax: 16000
   clamp: 0.00001
+
+merged_phoneme: False
+merged_phoneme_groups:
+  - [ b,p ]
+  - [ d,t ]
+  - [ g,k ]
+  - [ z,c,s ]
+  - [ zh,ch,sh,r ]
+  - [ j,q,x ]
+
+  - [ a,ia,ua ]
+  - [ ai,uai ]
+  - [ ao,iao ]
+  - [ an,ian,van,En ]
+  - [ ang,iang,uang ]
+  - [ en,in,vn ]
+  - [ eng,ing ]
+  - [ ong,iong ]
+  - [ ou,iu ]
+  - [ ie,ve ]
