@@ -658,7 +658,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         result["total"] = vlabeler_loss * 0.5 + result["BoundaryEditRatioWeighted"] * 0.5
         return result
 
-    def validation_step(self, batch, batch_idx):
+    def validation_step(self, batch, batch_idx, dataloader_idx=0):
         (
             input_feature,  # (B, n_mels, T)
             input_feature_lengths,  # (B)
