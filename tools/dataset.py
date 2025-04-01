@@ -111,7 +111,7 @@ class MixedDataset(torch.utils.data.Dataset):
         
         filtered_wave = wave + alpha * padded_wave
         
-        original_max = np.max(np.abs(wave))
+        original_max = np.clip(np.max(np.abs(wave)), 0, 0.95)
         filtered_max = np.max(np.abs(filtered_wave))
         filtered_wave = filtered_wave / filtered_max * original_max
         
