@@ -361,7 +361,6 @@ class ForcedAlignmentBinarizer:
                 total_time += wav_length
                 items_meta_data["wav_lengths"].append(wav_length)
                 items_meta_data["label_types"].append(label_type_id)
-                print("items_meta_data: ", items_meta_data["label_types"].count(0), items_meta_data["label_types"].count(1), items_meta_data["label_types"].count(2), items_meta_data["label_types"].count(3))
 
                 h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
                 h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
@@ -383,8 +382,6 @@ class ForcedAlignmentBinarizer:
         for k, v in items_meta_data.items():
             h5py_meta_data[k] = np.array(v)
         h5py_file.close()
-        
-        print("items_meta_data: ", items_meta_data["label_types"].count(0), items_meta_data["label_types"].count(1), items_meta_data["label_types"].count(2), items_meta_data["label_types"].count(3))
 
         full_label_ratio = (items_meta_data["label_types"].count(2) + items_meta_data["label_types"].count(3)) / len(
             items_meta_data["label_types"]

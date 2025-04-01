@@ -100,7 +100,7 @@ class Audio2Whisper(torch.nn.Module):
     def __init__(self, path, device='cpu', h_sample_rate=16000, h_hop_size=320):
         super().__init__()
         print(' [Encoder Model] Whisper')
-        print(' [Loading] ' + path)\
+        print(' [Loading] ' + path)
             
         from whisper.audio import log_mel_spectrogram, pad_or_trim
         from whisper.model import ModelDimensions, Whisper

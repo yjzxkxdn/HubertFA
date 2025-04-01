@@ -21,7 +21,7 @@ pre_emphasis_config:
 data_folder: data/
 binary_folder: data/binary_base
 
-valid_set_size: 5
+valid_set_size: 15
 
 # valid_sets: [] 时，按valid_set_size数量随机抽取
 valid_sets: []
