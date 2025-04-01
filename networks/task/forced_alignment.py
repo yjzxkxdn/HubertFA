@@ -239,7 +239,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         self.unitsEncoder = None
 
         # validation_step_outputs
-        self.validation_step_outputs = {"losses": [], "tiers": []}
+        self.validation_step_outputs = {"losses": [], "tiers-2": [], "tiers-3": []}
 
     def load_pretrained(self, pretrained_model):
         self.backbone = pretrained_model.backbone
@@ -633,6 +633,31 @@ class LitForcedAlignmentTask(pl.LightningModule):
             print(f"Error: {e}. skip this batch.")
             return torch.tensor(torch.nan).to(self.device)
 
+    def _get_evaluate_loss(self, tiers):
+        metrics = {
+            "BoundaryEditRatio": BoundaryEditRatio(),
+            "BoundaryEditRatioWeighted": BoundaryEditRatioWeighted(),
+            "VlabelerEditRatio10-20ms": VlabelerEditRatio(move_min=0.01, move_max=0.02),
+            "VlabelerEditRatio20-50ms": VlabelerEditRatio(move_min=0.02, move_max=0.05),
+            "VlabelerEditRatio50-100ms": VlabelerEditRatio(move_min=0.05, move_max=0.1),
+            "VlabelerEditRatio100-5000ms": VlabelerEditRatio(move_min=0.1, move_max=5.0)
+        }
+
+        if tiers:
+            for pred_tier, target_tier in tiers:
+                for metric in metrics.values():
+                    pred_tier = remove_ignored_phonemes(self.ignored_phones, pred_tier)
+                    target_tier = remove_ignored_phonemes(self.ignored_phones, target_tier)
+                    metric.update(pred_tier, target_tier)
+
+        result = {key: metric.compute() for key, metric in metrics.items()}
+
+        vlabeler_loss = result["VlabelerEditRatio10-20ms"] * 0.1 + result["VlabelerEditRatio20-50ms"] * 0.2 + \
+                        result["VlabelerEditRatio50-100ms"] * 0.3 + result["VlabelerEditRatio100-5000ms"] * 0.4
+        result["vlabeler_loss"] = vlabeler_loss
+        result["total"] = vlabeler_loss * 0.5 + result["BoundaryEditRatioWeighted"] * 0.5
+        return result
+
     def validation_step(self, batch, batch_idx):
         (
             input_feature,  # (B, n_mels, T)
@@ -699,7 +724,8 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
         self.validation_step_outputs["losses"].append(losses)
 
-        if label_type.cpu().numpy()[0] == 2:
+        label_type_id = label_type.cpu().numpy()[0]
+        if label_type_id >= 2:
             pred_tier = CustomPointTier(name="phones")
             target_tier = CustomPointTier(name="phones")
 
@@ -708,7 +734,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
 
             for mark, time in zip(ph_seq_pred, ph_intervals_pred):
                 pred_tier.addPoint(textgrid.Point(float(time[0]), mark))
-            self.validation_step_outputs["tiers"].append((pred_tier, target_tier))
+            self.validation_step_outputs[f"tiers-{label_type_id}"].append((pred_tier, target_tier))
 
     def on_validation_epoch_end(self):
         losses = torch.stack(self.validation_step_outputs["losses"], dim=0)
@@ -717,33 +743,15 @@ class LitForcedAlignmentTask(pl.LightningModule):
             {f"valid/{k}": v for k, v in zip(self.losses_names, losses) if v != 0}
         )
 
-        metrics = {
-            "BoundaryEditRatio": BoundaryEditRatio(),
-            "BoundaryEditRatioWeighted": BoundaryEditRatioWeighted(),
-            "VlabelerEditRatio10-20ms": VlabelerEditRatio(move_min=0.01, move_max=0.02),
-            "VlabelerEditRatio20-50ms": VlabelerEditRatio(move_min=0.02, move_max=0.05),
-            "VlabelerEditRatio50-100ms": VlabelerEditRatio(move_min=0.05, move_max=0.1),
-            "VlabelerEditRatio100-5000ms": VlabelerEditRatio(move_min=0.1, move_max=5.0)
-        }
-
-        tiers = self.validation_step_outputs.get("tiers", [])
-        if tiers:
-            for pred_tier, target_tier in tiers:
-                for metric in metrics.values():
-                    pred_tier = remove_ignored_phonemes(self.ignored_phones, pred_tier)
-                    target_tier = remove_ignored_phonemes(self.ignored_phones, target_tier)
-                    metric.update(pred_tier, target_tier)
-
-        result = {key: metric.compute() for key, metric in metrics.items()}
-
-        vlabeler_loss = result["VlabelerEditRatio10-20ms"] * 0.1 + result["VlabelerEditRatio20-50ms"] * 0.2 + \
-                        result["VlabelerEditRatio50-100ms"] * 0.3 + result["VlabelerEditRatio100-5000ms"] * 0.4
-        result["vlabeler_loss"] = vlabeler_loss
-        result["total"] = vlabeler_loss * 0.5 + result["BoundaryEditRatioWeighted"] * 0.5
-
-        for metric_name, metric_value in result.items():
+        val_loss = self._get_evaluate_loss(self.validation_step_outputs.get(f"tiers-2", []))
+        for metric_name, metric_value in val_loss.items():
             self.log_dict({f"vaild_evaluate/{metric_name}": metric_value})
-        self.validation_step_outputs["tiers"].clear()
+        self.validation_step_outputs[f"tiers-2"].clear()
+
+        evaluate_loss = self._get_evaluate_loss(self.validation_step_outputs.get(f"tiers-3", []))
+        for metric_name, metric_value in evaluate_loss.items():
+            self.log_dict({f"unseen_evaluate/{metric_name}": metric_value})
+        self.validation_step_outputs[f"tiers-3"].clear()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(

@@ -1,4 +1,3 @@
-import glob
 import os
 import pathlib
 import warnings
@@ -11,7 +10,6 @@ import torch
 import yaml
 from tqdm import tqdm
 
-import networks.g2p.dictionary_g2p
 from tools.encoder import UnitsEncoder
 from tools.get_melspec import MelSpecExtractor
 from tools.load_wav import load_wav
@@ -21,7 +19,6 @@ class ForcedAlignmentBinarizer:
     def __init__(self, binary_config):
         self.data_folder = pathlib.Path(binary_config['data_folder'])
         self.binary_folder = pathlib.Path(binary_config['binary_folder'])
-        self.evaluate_dictionary = pathlib.Path(binary_config['evaluate_dictionary'])
 
         self.valid_set_size = binary_config['valid_set_size']
         self.valid_sets = binary_config['valid_sets']
@@ -138,6 +135,9 @@ class ForcedAlignmentBinarizer:
         # load metadata of each item
         meta_data_df = self.get_meta_data(self.data_folder, vocab)
 
+        meta_data_evaluate = meta_data_df[meta_data_df["label_type"] == "evaluate"]
+        meta_data_df.drop(meta_data_evaluate.index)
+
         # split train and valid set
         valid_set_size = int(self.valid_set_size)
         if len(self.valid_sets) == 0:
@@ -154,14 +154,16 @@ class ForcedAlignmentBinarizer:
 
         meta_data_train = meta_data_df.drop(meta_data_valid.index).reset_index(drop=True)
         meta_data_valid = meta_data_valid.reset_index(drop=True)
+        meta_data_evaluate = meta_data_evaluate.reset_index(drop=True)
+
+        # binarize valid set
+        self.binarize("evaluate", meta_data_evaluate, vocab, self.binary_folder)
 
         # binarize valid set
         self.binarize("valid", meta_data_valid, vocab, self.binary_folder)
 
         # binarize train set
         self.binarize("train", meta_data_train, vocab, self.binary_folder)
-
-        self.binarize_evaluate(self.binary_folder)
 
     def make_ph_data(self, vocab, T, label_type_id, raw_ph_id_seq, raw_ph_dur):
         if label_type_id == 0:
@@ -200,7 +202,7 @@ class ForcedAlignmentBinarizer:
             ph_mask = np.zeros(vocab["vocab_size"], dtype="int32")
             ph_mask[ph_id_seq] = 1
             ph_mask[0] = 1
-        elif label_type_id == 2:
+        elif label_type_id >= 2:
             # ph_seq: [S]
             ph_id_seq = np.array(raw_ph_id_seq).astype("int32")
             not_sp_idx = ph_id_seq != 0
@@ -292,7 +294,7 @@ class ForcedAlignmentBinarizer:
         items_meta_data = {"label_types": [], "wav_lengths": []}
         h5py_items = h5py_file.create_group("items")
 
-        label_type_to_id = {"no_label": 0, "weak_label": 1, "full_label": 2}
+        label_type_to_id = {"no_label": 0, "weak_label": 1, "full_label": 2, "evaluate": 3}
 
         idx = 0
         total_time = 0.0
@@ -310,7 +312,7 @@ class ForcedAlignmentBinarizer:
 
                 # label_type: []
                 label_type_id = label_type_to_id[item.label_type]
-                if label_type_id == 2:
+                if label_type_id >= 2:
                     if len(item.ph_dur) != len(item.ph_id_seq):
                         label_type_id = 1
                     if len(item.ph_id_seq) == 0:
@@ -349,7 +351,7 @@ class ForcedAlignmentBinarizer:
             h5py_meta_data[k] = np.array(v)
         h5py_file.close()
 
-        full_label_ratio = items_meta_data["label_types"].count(2) / len(
+        full_label_ratio = (items_meta_data["label_types"].count(2) + items_meta_data["label_types"].count(3)) / len(
             items_meta_data["label_types"]
         )
         weak_label_ratio = items_meta_data["label_types"].count(1) / len(
@@ -369,82 +371,14 @@ class ForcedAlignmentBinarizer:
             f"total time {total_time:.2f}s ({(total_time / 3600):.2f}h), saved to {h5py_file_path}"
         )
 
-    def binarize_evaluate(self,
-                          binary_data_folder: str | pathlib.Path,
-                          ):
-        print(f"Binarizing evaluate set...")
-
-        grapheme_to_phoneme = networks.g2p.DictionaryG2P(**{"dictionary": self.evaluate_dictionary})
-        grapheme_to_phoneme.set_in_format('lab')
-
-        h5py_file_path = pathlib.Path(binary_data_folder) / "evaluate.h5py"
-        h5py_file = h5py.File(h5py_file_path, "w")
-        h5py_items = h5py_file.create_group("items")
-
-        evaluate_folder = self.data_folder / "evaluate"
-        spk_folders = [i for i in evaluate_folder.glob("*") if i.is_dir()]
-
-        data_paths = []
-        wav_paths = []
-        for spk_folder in spk_folders:
-            if not os.path.exists(spk_folder / "wavs") and os.path.exists(spk_folder / "TextGrid"):
-                print(f"Skipping {spk_folder}, wav or TextGrid folder not found.")
-                continue
-            else:
-                _wav_paths = glob.glob(str(spk_folder / "wavs" / "*.wav"))
-                for wav_path in _wav_paths:
-                    wav_name = pathlib.Path(pathlib.Path(wav_path).name)
-                    lab_path = spk_folder / "wavs" / wav_name.with_suffix(".lab")
-                    tg_path = spk_folder / "TextGrid" / wav_name.with_suffix(".TextGrid")
-                    if os.path.exists(lab_path) and os.path.exists(tg_path):
-                        abs_path = os.path.abspath(wav_path)
-                        data_paths.append((abs_path, lab_path, tg_path))
-                        wav_paths.append(abs_path)
-
-        idx = 0
-        total_time = 0.0
-        for wav_path, lab_path, tg_path in tqdm(data_paths):
-            try:
-                with open(lab_path, "r", encoding="utf-8") as f:
-                    lab_text = f.read().strip()
-                ph_seq, word_seq, ph_idx_to_word_idx = grapheme_to_phoneme(lab_text)
-
-                if ph_seq is None:
-                    continue
-
-                units, melspec, wav_length = self.make_input_feature(wav_path)
-
-                if units is None:
-                    print(f"{wav_path} extract units failed, skipping.")
-                    continue
-
-                h5py_item_data = h5py_items.create_group(str(idx))
-                idx += 1
-                total_time += wav_length
-
-                h5py_item_data["input_feature"] = units.cpu().numpy().astype("float32")
-                h5py_item_data["melspec"] = melspec.cpu().numpy().astype("float32")
-                h5py_item_data["wav_length"] = wav_length
-                h5py_item_data.create_dataset('ph_seq', data=ph_seq, dtype=h5py.string_dtype(encoding="utf-8"))
-                h5py_item_data.create_dataset('word_seq', data=word_seq, dtype=h5py.string_dtype(encoding="utf-8"))
-                h5py_item_data["ph_idx_to_word_idx"] = ph_idx_to_word_idx
-                h5py_item_data.create_dataset("wav_path", data=str(wav_path), dtype=h5py.string_dtype(encoding="utf-8"))
-                h5py_item_data.create_dataset("tg_path", data=str(tg_path), dtype=h5py.string_dtype(encoding="utf-8"))
-            except Exception as e:
-                print(f"Failed to binarize {wav_path}: {e}")
-        h5py_file.close()
-
-        print(
-            f"Successfully binarized evaluate set, "
-            f"total time {total_time:.2f}s ({(total_time / 3600):.2f}h), saved to {h5py_file_path}"
-        )
-
     def get_meta_data(self, data_folder, vocab):
         full_path = pathlib.Path(os.path.join(data_folder, "full_label"))
         weak_path = pathlib.Path(os.path.join(data_folder, "weak_label"))
+        evaluate_path = pathlib.Path(os.path.join(data_folder, "evaluate"))
 
         trans_path_list = ([i for i in full_path.rglob("transcriptions.csv") if i.name == "transcriptions.csv"] +
-                           [i for i in weak_path.rglob("transcriptions.csv") if i.name == "transcriptions.csv"])
+                           [i for i in weak_path.rglob("transcriptions.csv") if i.name == "transcriptions.csv"] +
+                           [i for i in evaluate_path.rglob("transcriptions.csv") if i.name == "transcriptions.csv"])
         if len(trans_path_list) <= 0:
             warnings.warn(f"No transcriptions.csv found in {data_folder}.")
 
@@ -455,17 +389,23 @@ class ForcedAlignmentBinarizer:
             df["wav_path"] = df["name"].apply(
                 lambda name: str(trans_path.parent / "wavs" / (str(name) + ".wav")),
             )
+
             df["preferred"] = df["wav_path"].apply(
                 lambda path_: (
                     True if any([i in pathlib.Path(path_).parts for i in self.valid_set_preferred_folders])
                     else False
                 ),
             )
-            df["label_type"] = df["wav_path"].apply(
-                lambda path_: (
-                    "full_label" if "full_label" in path_ else ("weak_label" if "weak_label" in path_ else "no_label")
-                ),
-            )
+
+            conditions = [
+                df["wav_path"].str.contains("full_label"),
+                df["wav_path"].str.contains("weak_label"),
+                df["wav_path"].str.contains("evaluate")
+            ]
+
+            choices = ["full_label", "weak_label", "evaluate"]
+
+            df["label_type"] = np.select(conditions, choices, default="no_label")
             if len(meta_data_df) >= 1:
                 meta_data_df = pd.concat([meta_data_df, df])
             else:
@@ -486,6 +426,7 @@ class ForcedAlignmentBinarizer:
         meta_data_df["ph_id_seq"] = meta_data_df["ph_seq"].apply(
             lambda x: ([vocab['vocab'][i] for i in x])
         )
+
         if "ph_dur" in meta_data_df.columns:
             meta_data_df["ph_dur"] = meta_data_df["ph_dur"].apply(
                 lambda x: (

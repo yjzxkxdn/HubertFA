@@ -1,6 +1,5 @@
 import os
 import pathlib
-import shutil
 
 import click
 import lightning as pl
@@ -11,7 +10,7 @@ from torch.utils.data import DataLoader
 
 from networks.task.forced_alignment import LitForcedAlignmentTask
 from tools.dataset import MixedDataset, WeightedBinningAudioBatchSampler, collate_fn
-from tools.train_callbacks import StepProgressBar, RecentCheckpointsCallback, VlabelerEvaluateCallback
+from tools.train_callbacks import StepProgressBar, RecentCheckpointsCallback
 
 
 @click.command()
@@ -95,6 +94,16 @@ def main(config_path: str, pretrained_model_path, resume):
         persistent_workers=num_workers > 0,
     )
 
+    evaluate_dataset = MixedDataset(config["binary_folder"], prefix="evaluate")
+    evaluate_dataloader = DataLoader(
+        dataset=evaluate_dataset,
+        batch_size=1,
+        shuffle=False,
+        collate_fn=collate_fn,
+        num_workers=num_workers,
+        persistent_workers=num_workers > 0,
+    )
+
     # model
     lightning_alignment_model = LitForcedAlignmentTask(
         vocab_text,
@@ -111,9 +120,6 @@ def main(config_path: str, pretrained_model_path, resume):
         save_top_k=config["save_top_k"],
         save_every_steps=config["save_every_steps"],
     )
-
-    vlabeler_callback = VlabelerEvaluateCallback(binary_data_folder=config["binary_folder"],
-                                                 out_tg_dir=save_model_path)
 
     stepProgressBar = StepProgressBar()
 
@@ -138,7 +144,7 @@ def main(config_path: str, pretrained_model_path, resume):
         check_val_every_n_epoch=None,
         max_epochs=-1,
         max_steps=config["optimizer_config"]["total_steps"],
-        callbacks=[recent_checkpoints_callback, vlabeler_callback, stepProgressBar, evaluate_checkpoint],
+        callbacks=[recent_checkpoints_callback, evaluate_checkpoint, stepProgressBar],
     )
 
     ckpt_path = None
@@ -158,7 +164,7 @@ def main(config_path: str, pretrained_model_path, resume):
     trainer.fit(
         model=lightning_alignment_model,
         train_dataloaders=train_dataloader,
-        val_dataloaders=valid_dataloader,
+        val_dataloaders=[valid_dataloader, evaluate_dataloader],
         ckpt_path=ckpt_path,
     )
 
