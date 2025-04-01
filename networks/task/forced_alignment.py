@@ -632,7 +632,7 @@ class LitForcedAlignmentTask(pl.LightningModule):
         except Exception as e:
             print(f"Error: {e}. skip this batch.")
             return torch.tensor(torch.nan).to(self.device)
-
+        
     def _get_evaluate_loss(self, tiers):
         metrics = {
             "BoundaryEditRatio": BoundaryEditRatio(),

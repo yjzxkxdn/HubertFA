@@ -7,12 +7,45 @@ random_seed: 123456
 # dataloader
 binary_folder: data/binary_base
 
-dataloader_workers: 2
+dataloader_workers: 0
 dataloader_prefetch_factor: 2
 oversampling_weights: [ 1, 1, 1, 1 ] # full_label, weak_label, no_label, evaluate
 batch_max_length: 100 # unit: seconds
 binning_length: 1000 # unit: seconds
 drop_last: False
+
+hubert_config:
+  # hubertsoft:     xxx.pt      hid_dim: 256
+  # cnhubert:       xxx_folder  hid_dim: 768    推荐
+  # cnhubert-large: xxx_folder  hid_dim: 1024
+  # whisper-ppg:    xxx.pt      hid_dim: 1024
+  encoder: cnhubert
+  model_path: dependencies/cnhubert
+  sample_rate: 16000
+  hop_size: 320
+  channel: 768
+
+hnspe_config:
+  hnspe_model_path: dependencies/vr/model.pt
+  use_hnspe_aug: False
+  hnspe_aug_prob: 0.5
+  noise_aug_volume_range: [0.5, 2.5]
+  harmonic_aug_volume_range: [0.8, 1.0]
+
+pre_emphasis_config:
+  use_pre_emphasis_aug: False
+  pre_emphasis_aug_prob: 0.5
+  alpha_range: [-0.8, 0.8]
+
+melspec_config:
+  n_mels: 128
+  sample_rate: 44100
+  win_length: 1024
+  hop_length: 512
+  n_fft: 2048
+  fmin: 40
+  fmax: 16000
+  clamp: 0.00001
 
 # model
 model:

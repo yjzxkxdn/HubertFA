@@ -59,13 +59,13 @@ def main(config_path: str, pretrained_model_path, resume):
     config.update(config_global)
 
     save_model_path = str(pathlib.Path("ckpt") / config["model_name"])
-
+    
     torch.set_float32_matmul_precision(config["float32_matmul_precision"])
     pl.seed_everything(config["random_seed"], workers=True)
 
     # define dataset
     num_workers = config['dataloader_workers']
-    train_dataset = MixedDataset(config["binary_folder"], prefix="train")
+    train_dataset = MixedDataset(config["melspec_config"], config["hubert_config"], config["hnspe_config"], config["pre_emphasis_config"], config["binary_folder"], prefix="train")
     train_sampler = WeightedBinningAudioBatchSampler(
         train_dataset.get_label_types(),
         train_dataset.get_wav_lengths(),
@@ -84,7 +84,7 @@ def main(config_path: str, pretrained_model_path, resume):
         prefetch_factor=(2 if num_workers > 0 else None),
     )
 
-    valid_dataset = MixedDataset(config["binary_folder"], prefix="valid")
+    valid_dataset = MixedDataset(binary_data_folder = config["binary_folder"], prefix="valid")
     valid_dataloader = DataLoader(
         dataset=valid_dataset,
         batch_size=1,
@@ -94,7 +94,7 @@ def main(config_path: str, pretrained_model_path, resume):
         persistent_workers=num_workers > 0,
     )
 
-    evaluate_dataset = MixedDataset(config["binary_folder"], prefix="evaluate")
+    evaluate_dataset = MixedDataset(binary_data_folder = config["binary_folder"], prefix="evaluate")
     evaluate_dataloader = DataLoader(
         dataset=evaluate_dataset,
         batch_size=1,
@@ -103,7 +103,7 @@ def main(config_path: str, pretrained_model_path, resume):
         num_workers=num_workers,
         persistent_workers=num_workers > 0,
     )
-
+    
     # model
     lightning_alignment_model = LitForcedAlignmentTask(
         vocab_text,
@@ -159,7 +159,7 @@ def main(config_path: str, pretrained_model_path, resume):
             ckpt_path_list, key=lambda x: int(x.stem.split("step=")[-1]), reverse=True
         )
         ckpt_path = str(ckpt_path_list[0]) if len(ckpt_path_list) > 0 else None
-
+        
     # start training
     trainer.fit(
         model=lightning_alignment_model,

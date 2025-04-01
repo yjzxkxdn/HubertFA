@@ -5,10 +5,17 @@ import numpy as np
 import pandas as pd
 import torch
 
+from tools.encoder import UnitsEncoder
+from tools.get_melspec import MelSpecExtractor
+from tools.split_wave import SplitWave
 
 class MixedDataset(torch.utils.data.Dataset):
     def __init__(
             self,
+            melspec_config = None,
+            hubert_config = None,
+            hnspe_config = None,
+            pre_emphasis_config = None,
             binary_data_folder="data/binary",
             prefix="train",
     ):
@@ -20,6 +27,40 @@ class MixedDataset(torch.utils.data.Dataset):
 
         self.binary_data_folder = binary_data_folder
         self.prefix = prefix
+        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        self.use_hnspe_aug = hnspe_config["use_hnspe_aug"] if hnspe_config is not None else False
+        self.use_pre_emphasis_aug = pre_emphasis_config["use_pre_emphasis_aug"] if pre_emphasis_config is not None else False
+        
+        self.need_aug = (self.use_hnspe_aug or self.use_pre_emphasis_aug) and prefix == "train"
+        if self.need_aug:
+            if self.use_hnspe_aug or self.use_pre_emphasis_aug:
+                self.get_melspec = MelSpecExtractor(**melspec_config, device=self.device)
+                self.sample_rate = melspec_config["sample_rate"]
+                self.frame_length = melspec_config["hop_length"] / self.sample_rate
+                self.hop_size = melspec_config["hop_length"]
+
+                self.unitsEncoder = UnitsEncoder(
+                    hubert_config["encoder"],
+                    hubert_config["model_path"],
+                    hubert_config["sample_rate"],
+                    hubert_config["hop_size"],
+                    self.device)
+
+                self.hubert_channel = hubert_config["channel"]
+                
+            if self.use_hnspe_aug:
+                self.splitWave = SplitWave(
+                    hnspe_config["hnspe_model_path"],
+                    device = self.device
+                )
+                self.hnspe_config = hnspe_config
+                self.hnspe_aug_prob = hnspe_config["hnspe_aug_prob"]
+                
+            if self.use_pre_emphasis_aug:
+                self.pre_emphasis_aug_prob = pre_emphasis_config["pre_emphasis_aug_prob"]
+                self.alpha_range = pre_emphasis_config["alpha_range"]
 
     def get_label_types(self):
         uninitialized = self.label_types is None
@@ -49,6 +90,33 @@ class MixedDataset(torch.utils.data.Dataset):
     def _close_h5py_file(self):
         self.h5py_file.close()
         self.h5py_file = None
+        
+    def _hnspe_aug(self, item):
+        noise_volume_min = self.hnspe_config["noise_aug_volume_range"][0]
+        noise_volume_max = self.hnspe_config["noise_aug_volume_range"][1]
+        harmonic_volume_min = self.hnspe_config["harmonic_aug_volume_range"][0]
+        harmonic_volume_max = self.hnspe_config["harmonic_aug_volume_range"][1]
+        
+        noise_volume = np.random.uniform( noise_volume_min, noise_volume_max )
+        harmonic_volume = np.random.uniform( harmonic_volume_min, harmonic_volume_max )
+        
+        mixed_waveform = np.array(item["audio_harmonic"]) * harmonic_volume + np.array(item["audio_noise"]) * noise_volume
+        return mixed_waveform
+    
+    def _pre_emphasis_aug(self, wave):
+        alpha = np.random.uniform(self.alpha_range[0], self.alpha_range[1])
+        
+        padded_wave = np.zeros_like(wave)
+        padded_wave[:-1] = wave[1:]
+        
+        filtered_wave = wave + alpha * padded_wave
+        
+        original_max = np.max(np.abs(wave))
+        filtered_max = np.max(np.abs(filtered_wave))
+        filtered_wave = filtered_wave / filtered_max * original_max
+        
+        return filtered_wave
+        
 
     def __len__(self):
         uninitialized = self.h5py_file is None
@@ -73,6 +141,33 @@ class MixedDataset(torch.utils.data.Dataset):
         ph_mask = np.array(item["ph_mask"])
         melspec = np.array(item["melspec"])
         ph_time = np.array(item["ph_time"])
+        
+        if self.need_aug:
+            hnspe_auged = False
+            pre_emphasis_auged = False
+            if self.use_hnspe_aug and np.random.rand() < self.hnspe_aug_prob:
+                wave_aug = self._hnspe_aug(item)
+                hnspe_auged = True
+            
+            if self.use_pre_emphasis_aug and np.random.rand() < self.pre_emphasis_aug_prob:
+                wave_aug = wave_aug if hnspe_auged else np.array(item["audio"])
+                wave_aug = self._pre_emphasis_aug(wave_aug)
+                pre_emphasis_auged = True
+            
+            if not pre_emphasis_auged and hnspe_auged:
+                wave_aug_max = np.max(np.abs(wave_aug))
+                if wave_aug_max > 0.95: # avoid clipping
+                    wave_aug = wave_aug / wave_aug_max * 0.95
+                    
+            if hnspe_auged or pre_emphasis_auged:
+                wave_aug = torch.from_numpy(wave_aug).float().to(self.device)
+                    
+                input_feature_aug = self.unitsEncoder.encode(wave_aug.unsqueeze(0), self.sample_rate, self.hop_size)  # [B, C, T]
+                melspec_aug = self.get_melspec(wave_aug)  # [B, C, T]
+            
+                if input_feature_aug is not None and input_feature_aug.shape[1] == self.hubert_channel:
+                    input_feature = input_feature_aug.cpu().numpy().astype("float32")
+                    melspec = melspec_aug.cpu().numpy().astype("float32")
 
         return input_feature, ph_seq, ph_id_seq, ph_edge, ph_frame, ph_mask, label_type, melspec, ph_time
 

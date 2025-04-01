@@ -4,9 +4,6 @@ from torch.nn.modules.utils import consume_prefix_in_state_dict_if_present
 from torchaudio.transforms import Resample
 from transformers import Wav2Vec2FeatureExtractor, HubertModel
 
-from whisper.audio import log_mel_spectrogram, pad_or_trim
-from whisper.model import ModelDimensions, Whisper
-
 from networks.hubert.model import HubertSoft
 
 
@@ -103,9 +100,14 @@ class Audio2Whisper(torch.nn.Module):
     def __init__(self, path, device='cpu', h_sample_rate=16000, h_hop_size=320):
         super().__init__()
         print(' [Encoder Model] Whisper')
-        print(' [Loading] ' + path)
+        print(' [Loading] ' + path)\
+            
+        from whisper.audio import log_mel_spectrogram, pad_or_trim
+        from whisper.model import ModelDimensions, Whisper
 
         self.dev = device
+        self.pad_or_trim = pad_or_trim
+        self.log_mel_spectrogram = log_mel_spectrogram
         checkpoint = torch.load(path, map_location=self.dev)
         dims = ModelDimensions(**checkpoint["dims"])
         model = Whisper(dims)
@@ -117,8 +119,8 @@ class Audio2Whisper(torch.nn.Module):
                 audio):  # B, T
         audln = audio.shape[1]
         ppgln = audln // 320
-        audio = pad_or_trim(audio)
-        mel = log_mel_spectrogram(audio).to(self.dev)
+        audio = self.pad_or_trim(audio)
+        mel = self.log_mel_spectrogram(audio).to(self.dev)
         with torch.no_grad():
             ppg = self.model.encoder(mel).squeeze().data.cpu().float().numpy()
             ppg = torch.FloatTensor(ppg[:ppgln, ]).to(self.dev)

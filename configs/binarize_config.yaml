@@ -9,14 +9,22 @@ hubert_config:
   hop_size: 320
   channel: 768
 
+hnspe_config:
+  hnspe_model_path: dependencies/vr/model.pt
+  use_hnspe_aug: False
+
+pre_emphasis_config:
+  use_pre_emphasis_aug: False
+
 # 只检测data文件夹下，"full_label"、"weak_label"、"no_label"、"evaluate"文件夹内数据
 # evaluate路径固定为{datafolder}/evaluate，格式同full_label。可留空，此时evaluate_loss不生效
 data_folder: data/
 binary_folder: data/binary_base
 
-valid_set_size: 15
+valid_set_size: 5
+
 # valid_sets: [] 时，按valid_set_size数量随机抽取
-valid_sets: [ ]
+valid_sets: []
 valid_set_preferred_folders:
   - test
 ignored_phonemes:
@@ -39,6 +47,7 @@ vowel_phonemes:
 dictionary_paths:
   - dictionary/opencpop-extension.txt
 max_length: 45 # unit: second
+
 
 melspec_config:
   n_mels: 128
